@@ -1,0 +1,2 @@
+transport key: transport link or network key form a key source(example trust center)
+request key: application key or link key form the trust center

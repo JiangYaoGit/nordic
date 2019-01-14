@@ -1,0 +1,114 @@
+
+silicon@newbitstudio.com
+NEWBIT888
+
+Wireless Starter Kit Mainboard (BRD4001A Rev A01)  J_link端串口1 FT232端串口0
+WSTK(BRD4001A Rev A01)  EFR32MG1P232F256GM48:flash256 ram32 
+预留16空间给BootLoader
+
+nordic ram256k flash1M，分256page,每页4kb;每页分8block,每块512字节
++8 dBm TX Power
+电源源vdd和vddh，默认vdd
+power_management_init();  nrf_pwr_mgmt_run();  使波形变得平缓
+sd_power_dcdc_mode_set(NRF_POWER_DCDC_ENABLE)  降低功耗
+
+
+sudo ./Z3GatewayHost -n 1 -p /dev/ttyUSB0   (buad:57600   软件流控)
+./Z3GatewayHost -p COM14  	            (buad:115200  硬件流控)
+network leave
+plugin network-creator form 1 0x2533 20 23
+默认连接密钥：plugin network-creator-security open-network
+install code: plugin network-creator-security open-with-key {8877665544332211} {FA 80 81 CA AA 41 D5 AD E9 B5 65 87 99 26 8B 88}
+(其中EUI64:合法的mac地址中间插入FFFE，然后从左到右第七位置1)
+
+option install-code [keyTableIndex:1] [ieeeAddress:8] [installCode + 2CRC]
+option install-code 0 {8877665544332211} {88 77 66 55 44 33 22 11 11 22 33 44 55 66 77 88 D4 90}
+network change-channel 23
+network id
+
+install code示例讲解
+nordic：
+	test_address = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88}; 
+	zb_set_long_address(test_address);  在silicon抓包结果看：8877665544332211（小写变大写）
+
+控制灯（在Z3GatewayHost下,plugins->utility中，勾选Device Table）
+zcl命令用于填充pre-buffer，并不会发送。发送使用send
+zcl on-off on 
+send 0xFDB0 0 10
+plugin device-table print  //打印设备列表
+	0 FDB0:  0B010EBC858C9D5F 10 DIMMABLE_LIGHT JOINED 1458
+	1 FDB0:  0B010EBC858C9D5F 242  JOINED 909138
+	Total Devices 2
+plugin device-table leave {000B57FFFE648DD8} //使设备退网
+
+
+
+  
+默认连接密钥：5A:69:67:42:65:65:41:6C:6C:69:61:6E:63:65:30:39  CRC:CD5F
+目前测试nordic 1个信道1s，16个信道16s
+#define ZIGBEE_CHANNEL_ALL ((1l << 11)|(1l << 12)|(1l << 13)|(1l << 14)|				\
+			(1l << 15)|(1l << 16)|(1l << 17)|(1l << 18)|(1l << 19)|(1l << 20)|		\
+			(1l << 21)|(1l << 22)|(1l << 23)|(1l << 24)|(1l << 25)|(1l << 26))
+
+
+83 FE D3 40 7A 93 97 23 A5 C6 39 B2 69 16 D5 05 C3 B5
+uint32_t end_addr = (bootloader_addr != 0xFFFFFFFF) ? (bootloader_addr-0xC000) : (code_sz * (page_sz-12));
+
+
+安装python2.7.10之后的版本但不是python3，之后将python.exe所在文件夹的路径添加到系统路径中，在Script文件夹下运行着各种插件，将这个路劲也添加到系统路径中
+安装pip，方法1：下载安装pip安装包,cd到子目录，输入python setup.py install方法2：在script文件下有个easy_install.exe命令，输入easy_install.exe pip
+安装nrfjprog，在nordic官网安装包，安装后带有mergehex.exe命令。
+
+nordic固件合并与升级https://github.com/NordicSemiconductor/pc-nrfutil/blob/master/README.md
+第1步：
+生成私钥、公钥
+nrfutil keys generate private.pem 
+nrfutil keys display --key pk --format code private.pem --out_file dfu_public_key.c
+
+第2步：生成bootloade版本信息
+nrfutil settings generate --family NRF52840 --application nrf52840_xxaa_app.hex --application-version 1 --bootloader-version 1 --bl-settings-version 1 --no-backup bootloader_setting.hex
+
+第3步：（需要的hex文件nrf52840_xxaa_app.hex            nrf52840_xxaa_s140_boot.hex                  s140_nrf52_6.1.0_softdevice.hex          mergehex.exe目前最多三个参数）
+mergehex.exe -m s140_nrf52_6.1.0_softdevice.hex nrf52840_xxaa_app.hex nrf52840_xxaa_s140_boot.hex -o 
+nrf52840_softdevice_application_bootloader.hex
+mergehex.exe -m nrf52840_softdevice_application_bootloader.hex bootloader_setting.hex -o 
+nrf52840_firmware.hex    （nrf52840_firmware.hex =softdevice+application+bootloader+pagesetting）
+最后将nrf52840_firmware.hex下载到开发板中，即可。(通过手机蓝牙连接上开发板，enable service，然后发送0x01使开发板进入BootLoader模式)
+mergehex.exe -m s140_nrf52_6.1.0_softdevice.hex nrf52840_xxaa_s140_boot.hex bootloader_setting.hex -o 
+nrf52840_firmware_no_application.hex   （上电后，直接进入BootLoader模式）    
+
+第3步：下载
+nrfjprog -e
+nrfjprog --program ./nrf52840_firmware.hex --verify
+nrfjprog -r
+
+第4步：nordic的zip包生成(softdevice + application)
+nrfutil pkg generate --hw-version 52 --sd-req 0xAE --application-version 1 --application nrf52840_xxaa_app.hex --sd-id 0xAE --softdevice s140_nrf52_6.1.0_softdevice.hex --key-file private.pem nrf52840_firmware_sd_and_app.zip
+nrfutil pkg generate --hw-version 52 --sd-req 0xAE --application-version 1 --application nrf52840_xxaa_app.hex --key-file private.pem nrf52840_firmware_app.zip
+nrfutil pkg generate --hw-version 52 --sd-req 0xAE --sd-id 0xAE --softdevice s140_nrf52_6.1.0_softdevice.hex --key-file private.pem nrf52840_firmware_sd.zip
+nrfutil pkg generate --hw-version 52 --sd-req 0xAE --bootloader-version 1 --bootloader nrf52840_xxaa_s140_boot.hex --key-file private.pem nrf52840_firmware_bootloader.zip（代码中需要去除写保护nrf_bootloader_flash_protect）
+
+Bond操作      
+sdk_config.h in the bootloader:Change NRF_DFU_BLE_REQUIRES_BONDS to 1             Change NRF_SDH_BLE_SERVICE_CHANGED to 1
+sdk_config.h in ble_app_buttonless_dfu：Change NRF_DFU_BLE_BUTTONLESS_SUPPORTS_BONDS to 1     Check if NRF_SDH_BLE_SERVICE_CHANGED is not 1 then set it to 1
+升级模式设置NRF_DFU_FORCE_DUAL_BANK_APP_UPDATES   1为dual_bank
+
+FDS存储机制
+FDS_VIRTUAL_PAGES 3           FDS_VIRTUAL_PAGE_SIZE 1024         FDS_VIRTUAL_PAGES_RESERVED 0
+    uint32_t const page_sz         = NRF_FICR->CODEPAGESIZE;  //4096
+    uint32_t const page_cnt        = NRF_FICR->CODESIZE;    //256
+uint32_t end_addr = (bootloader_addr != 0xFFFFFFFF) ? (bootloader_addr-0xC000) : (page_sz * (page_cnt-12));
+
+
+
+
+
+
+
+
+
+
+
+
+mergehex.exe -m s140_nrf52_6.1.0_softdevice.hex nrf52840_xxaa.hex -o 
+nrf52840_firmware.hex 
