@@ -1,15 +1,15 @@
 # nordic and silicon lab
 
-门锁侧：运行双模协议ble+zibee
+门锁侧：运行双模协议ble+zibee 
 使用nordic的nrf52840+pca10056开发板
-开发环境keil5,  SDK15   协议栈S140
+开发环境keil5,  SDK15   协议栈S140  
 一、蓝牙实现功能介绍：
 1 为zigbee软件代码的实现空中升级。目前采用单通道，只升级application，暂不升级bootload和
 softdevice具体的flash布局可通过源码设置，或是通过nrf connect查看flash布局效果。
 2 固件的合并与加密。安装python2.7.10之后的版本但不是python3，然后再script中添加nrfjprog
 插件，之后查看公私钥、固件合并等指令帮助
 3 FDS存储系统的移植，需特别注意不可和其他分区的flash重叠。flash在擦除后才可写入，固采用
-fds的存储机制。
+fds的存储机制。  
 二、zigbee实现功能介绍
 1 按键触发的加网和退网机制，以及led的多种状态的指示。
 2 优化加网机制，例如以2分钟、30分钟、60分钟、120分钟、、、的间隔进行搜网，每次间隔2:1共持
