@@ -49,6 +49,7 @@
 #include "zb_mem_config_min.h"
 #include "zb_error_handler.h"
 #include "wl_door_lock_config.h"
+#include "wl_door_lock_uart_cmd.h"
 
 #include "app_timer.h"
 #include "bsp.h"
@@ -61,6 +62,10 @@
 #include "app_uart.h"
 #include "nrf_uart.h"
 #include "nrf_uarte.h"
+
+#include <stdio.h>  
+#include <string.h>  
+#include <stdarg.h>  
 
 #define UART_TX_BUF_SIZE                256                                         /**< UART TX buffer size. */
 #define UART_RX_BUF_SIZE                256                                         /**< UART RX buffer size. */
@@ -125,20 +130,21 @@ typedef struct light_switch_ctx_s
 //zcl头控制字段
 #define GOLBAL_COMMAND                    1 
 #define SPECIFIC_CLUSTER_COMMAND          0
-#define MAMUFAC_SPECIFIC_BIT              ZB_ZCL_MANUFACTURER_SPECIFIC
+#define MANUFAC_SPECIFIC_BIT              ZB_ZCL_MANUFACTURER_SPECIFIC
 #define ZIGBEE_STANDART_BIT               ZB_ZCL_NOT_MANUFACTURER_SPECIFIC 
 #define MANUFAC_CODE  					  0xEE00        //厂商编号，zigbee联盟分配
-zb_uint16_t dst_short_addr = 0;
-//ZB_GET_OUT_BUF_DELAYED(report_handler);
+zb_uint16_t dst_short_address = 0;
+//ZB_GET_OUT_BUF_DELAYED(air_sent_event_handler);
 
-#define ZB_ZCL_GENERAL_REPORT_HANDLER(buffer, load_buf, load_len, addr, cmd_id_manuf, cb)   \
+#define ZB_ZCL_GENERAL_REPORT_HANDLER(buffer, load_buf, load_len, addr, manuf_specific, cmd_id_manuf, cb)   \
 {  																											\
 	zb_uint8_t* ptr =NULL;																					\
 	ptr = ZB_ZCL_START_PACKET(buffer)                                               				 		\
-	ZB_ZCL_CONSTRUCT_SPECIFIC_COMMAND_REQ_FRAME_CONTROL_A(                                 					\
-		ptr, ZB_ZCL_FRAME_DIRECTION_TO_CLI, ZB_ZCL_MANUFACTURER_SPECIFIC, ZB_ZCL_DISABLE_DEFAULT_RESPONSE); \
-	ZB_ZCL_CONSTRUCT_COMMAND_HEADER_EXT(ptr, ZB_ZCL_GET_SEQ_NUM(), 1, MANUFAC_CODE, cmd_id_manuf); 		    \
-	for(char i = 0; i < load_len; i++)    					\
+	ZB_ZCL_CONSTRUCT_SPECIFIC_COMMAND_RESP_FRAME_CONTROL_A(													\
+		ptr, ZB_ZCL_FRAME_DIRECTION_TO_CLI, manuf_specific); 												\
+	ZB_ZCL_CONSTRUCT_COMMAND_HEADER_EXT(																	\
+		ptr, ZB_ZCL_GET_SEQ_NUM(), manuf_specific, MANUFAC_CODE, cmd_id_manuf); 		    				\
+	for(char i = 2; i < load_len; i++)    					\
 	{ 													    \
 		ZB_ZCL_PACKET_PUT_DATA8(ptr, load_buf[i]);			\
 	}   													\
@@ -147,20 +153,6 @@ zb_uint16_t dst_short_addr = 0;
 	ZB_AF_HA_PROFILE_ID, ZB_ZCL_CLUSTER_ID_DOOR_LOCK, cb);   											    \
 }
 
-
-static zb_void_t report_handler(zb_uint8_t param)  
-{
-	//zb_uint8_t 		   * ptr = NULL;
-	zb_buf_t           * p_buf = ZB_BUF_FROM_REF(param);
-	char buf[10] = {0};
-	memcpy(buf, "hello", strlen("hello"));
-	ZB_ZCL_GENERAL_REPORT_HANDLER(p_buf, buf, strlen("123"), dst_short_addr, DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,NULL);
-
-//	ZB_ZCL_GENERAL_INIT_CONFIGURE_REPORTING_CLI_REQ(p_buf, ptr, ZB_ZCL_DISABLE_DEFAULT_RESPONSE);
-//	ZB_ZCL_GENERAL_SEND_CONFIGURE_REPORTING_REQ(p_buf, ptr, dst_short_addr, ZB_APS_ADDR_MODE_16_ENDP_PRESENT, 1,
-//		       HA_DOOR_LOCK_ENDPOINT, ZB_AF_HA_PROFILE_ID, ZB_ZCL_CLUSTER_ID_DOOR_LOCK, NULL);
-	return;
-}
 /*****************************************state reporting****************************************************/
 /************************************************************************************************************/
 
@@ -179,7 +171,8 @@ typedef struct
 
 static zb_device_ctx_t dev_ctx;
 ZB_CMD_PTR_DEF(rev);
-
+APP_TIMER_DEF(uart_receive_timer); 
+ZB_DOOR_LOCK_PROTOCOL_DEF(door_lock);
 
 
 /* declare cluster attributes*/
@@ -287,7 +280,7 @@ ZB_ZCL_DECLARE_DOOR_LOCK_CLUSTER_ATTRIB_LIST_C(door_lock_attr_list,
 											&dev_ctx.door_lock_attr.number_of_pin_users_supported,
 											&dev_ctx.door_lock_attr.max_pin_code_length,
 											&dev_ctx.door_lock_attr.min_pin_code_length,
-											&dev_ctx.door_lock_attr.atuo_relock_time);						
+											&dev_ctx.door_lock_attr.atuo_relock_time);
 											
 ZB_HA_DECLARE_DOOR_LOCK_CLUSTER_LIST(door_lock_clusters,
 									door_lock_attr_list,
@@ -347,20 +340,62 @@ static void bulb_clusters_attr_init(void)
 	
 }
 
+/***********************************************************************************************/
 
-/*****************************ack******************************************************/
+/*****************************function declear**************************************************/
+static void uart_sent_event_handler(uint8_t * param, uint8_t len);
+static void uart_receive_event_handler(void * param);
+
+static zb_void_t air_sent_event_handler(uint8_t load_len, uint8_t *load_param, uint8_t *param, ...);
+static zb_void_t air_recevie_event_handler(uint8_t param1_len, uint8_t *param1, uint8_t param2_len, uint8_t *param2, uint8_t *param,...);
+/*****************************function declear**************************************************/
+
+/*****************************ack**************************************************************/
 /**********************************************************************************************/
+void uart_receive_ack_valid(uint8_t uart_cmd_id)
+{
+	uint8_t tmp[10] = {0};
+	uint8_t check_sum = 0;
+	tmp[0] = 0xA1;
+	tmp[1] = 0x00;
+	tmp[2] = 0x00;
+	tmp[3] = 0x02;
+	tmp[4] = uart_cmd_id;
+	for(char i = 0; i < 5; i++)
+	{
+		check_sum += tmp[i];
+	}
+	tmp[5] = check_sum;
+	uart_sent_event_handler(tmp, 6);
+}
 
-
-
-
+void uart_receive_ack_error(uint8_t uart_cmd_id)
+{
+	uint8_t tmp[10] = {0};
+	uint8_t check_sum = 0;
+	tmp[0] = 0xA1;
+	tmp[1] = 0x01;
+	tmp[2] = 0x00;
+	tmp[3] = 0x02;
+	tmp[4] = uart_cmd_id;
+	for(char i = 0; i < 5; i++)
+	{
+		check_sum += tmp[i];
+	}
+	tmp[5] = check_sum;
+	uart_sent_event_handler(tmp, 6);
+}
 /**********************************************************************************************/
-
+char zibee_to_mcu_retry = 0;	//重发标志
 /*****************************uart packet******************************************************/
 /**********************************************************************************************/
 #define MCU_ZIGBEE_UART_MAX_LEN     50
+static uint8_t uart_receive_len = 0;
+static uint8_t uart_receive[MCU_ZIGBEE_UART_MAX_LEN];
+//static uint8_t uart_sent[MCU_ZIGBEE_UART_MAX_LEN];
+//static uint8_t uart_sent_len = 0;
 
-void uart_send_event_handler(uint8_t * param, zb_uint8_t len)
+static void uart_sent_event_handler(uint8_t * param, uint8_t len)
 {
 	for(char i =0; i< len; i++)
 	{
@@ -368,36 +403,391 @@ void uart_send_event_handler(uint8_t * param, zb_uint8_t len)
 	}
 }
 
-void uart_receive_event_handler(uint8_t * param, zb_uint8_t len)
+static void uart_receive_event_handler(void * param)
 {
-	for(char i =0; i< len; i++)
+	uint8_t check_sum = 0;
+	uint8_t report_state = 0x01;
+	uint8_t receiv[MCU_ZIGBEE_UART_MAX_LEN];
+	uint8_t receive_len = uart_receive_len;
+	
+	uart_receive_len = 0;
+	for(uint8_t i = 0; i < receive_len; i++)
 	{
-		app_uart_put(param[i]);
+		receiv[i] = uart_receive[i];
+		if(i < (receive_len - 1))
+		{
+			check_sum += receiv[i];
+		}
+	}	
+	
+
+	uint8_t high_four_bit = receiv[1] >> 4;
+	uint8_t low_four_bit = receiv[1] & 0x0F;
+	
+	if(high_four_bit == HIGH_FOUR_BIT_0)
+	{
+		switch(low_four_bit)
+		{
+			/* 重发机制 */
+			case LOW_FOUR_BIT_0: //zigbee->mcu，mcu进行ack应答
+			{
+				zibee_to_mcu_retry = 0;
+			}break;
+			
+			case LOW_FOUR_BIT_1: //zigbee->mcu，mcu进行nck应答
+			{
+				zibee_to_mcu_retry = 1;
+			}break;
+			
+			default:
+				break;
+		}
+		return;
+	}
+		
+	if(receiv[receive_len - 1] == check_sum && receiv[0] == UART_PROTOCOL_HEADER_FIELD)
+	{		
+		/* 校验和正确且包头正确 */
+		uart_receive_ack_valid(receiv[1]);
+		if(high_four_bit == HIGH_FOUR_BIT_1)
+		{
+			switch(low_four_bit)
+			{
+				case LOW_FOUR_BIT_0: //本地斜锁事件
+				{
+					air_sent_event_handler(1, &receiv[4], Param_Num_4, Mcu_Zb_Fill_Standard(DOOR_LOCK_COMMADN_LOCK_DOOR,		\
+						ZB_ZCL_ATTR_DOOR_LOCK_LOCK_STATE_ID));
+				}break;
+				
+				case LOW_FOUR_BIT_1: //本地主锁事件
+				{					
+					air_sent_event_handler(1, &receiv[4], Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+						ZB_ZCL_ATTR_DOOR_LOCK_BACK_LOCK_ID));
+				}break;
+				
+				case LOW_FOUR_BIT_2: //本地系统锁定事件
+				{
+					air_sent_event_handler(1, &receiv[4], Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+						ZB_ZCL_ATTR_DOOR_LOCK_SYSTEM_LOCK_ID));
+				}break;
+				
+				case LOW_FOUR_BIT_3: //本地门铃事件
+				{
+					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+						ZB_ZCL_ATTR_DOOR_LOCK_DOOR_BELL_ID));
+				}break;
+				
+				case LOW_FOUR_BIT_4: //本地防撬事件
+				{
+					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+						ZB_ZCL_ATTR_DOOR_LOCK_PRYING_RESISTANT_ID));
+				}break;
+				
+				case LOW_FOUR_BIT_5: //本地逗留事件
+				{
+					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+						ZB_ZCL_ATTR_DOOR_LOCAL_STAY_ID));
+				}break;
+				
+				case LOW_FOUR_BIT_6: //本地电压事件
+				{
+					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+						ZB_ZCL_ATTR_DOOR_LOCK_VOLTAGE_LEVEL_ID));
+				}break;
+				
+				case LOW_FOUR_BIT_7: //本地用户劫持事件
+				{
+					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+						ZB_ZCL_ATTR_DOOR_LOCK_HIJACKING_PREVENTION_ID));
+				}break;
+				
+				case LOW_FOUR_BIT_8: //本地新增用户事件
+				{
+
+				}break;
+				
+				case LOW_FOUR_BIT_9: //本地删除用户事件
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_A: //本地修改用户事件
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_B: //本地格式重置化事件
+				{
+					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+						ZB_ZCL_ATTR_DOOR_LOCK_FACTORY_SETTING_ID));
+				}break;
+				
+				case LOW_FOUR_BIT_C: //本地普通模式开锁事件
+				{
+					air_sent_event_handler(4, &receiv[4], Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_CUSTOM_FORMAT,	\
+						ZB_ZCL_ATTR_DOOR_LOCK_CUSTOM_UNLOCK_MODE_ID));
+				}break;
+				
+				case LOW_FOUR_BIT_D: //本地双重验证开锁事件
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_E: //本地电机加锁事件
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_F: //本地电机开锁事件
+				{
+					
+				}break;
+				
+				default:
+					break;
+			}
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_2)
+		{
+
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_3)
+		{
+			
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_4)
+		{
+			switch(low_four_bit)
+			{
+				case LOW_FOUR_BIT_0: //本地请求加入网络
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_1: //本地请求退出网络
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_2: //本地请求绑定门铃
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_3: //本地请求版本信息
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_4: //本地请求校准时间
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_5: //本地上传支持功能
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_6: //本地请求当地时区
+				{
+					
+				}break;
+				
+				default:
+					break;
+			}
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_5)
+		{
+		
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_6)
+		{
+			switch(low_four_bit)
+			{
+				case LOW_FOUR_BIT_0: //APP 无线开锁结果回传
+				{
+					air_sent_event_handler(1, &receiv[4], Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+						ZB_ZCL_ATTR_DOOR_LOCK_VERIFY_CODE_ID));
+				}break;
+				
+				case LOW_FOUR_BIT_1: //APP 管理员验证结果回传
+				{
+					air_sent_event_handler(1, &receiv[4], Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_ADMIN_VERIFY_CODE,	\
+						ZB_ZCL_ATTR_DOOR_LOCK_ADMIN_VERIFY_EVENT_ID));
+				}break;
+				
+				case LOW_FOUR_BIT_2: //APP 更改用户信息回传
+				{
+				
+				}break;
+				
+				case LOW_FOUR_BIT_3: //APP 添加临时用户磁卡失败回传
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_4: //APP 添加临时用户密码失败回传
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_5: //APP 临时管理密码结果回传
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_8: //APP 查询管理用户信息回传
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_9: //APP 查询普通用户信息回传
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_A: //APP 查询临时用户信息回传
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_C: //APP 查询一键锁死结果回传
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_D: //APP 查询门铃免扰设置回传
+				{
+					
+				}break;
+				
+				case LOW_FOUR_BIT_E: //APP 查询锁具当前状态回传
+				{
+					
+				}break;					
+				
+				case LOW_FOUR_BIT_F: //APP 查询锁具固件版本回传
+				{
+					
+				}break;
+				
+				default:
+					break;
+			}
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_7)
+		{
+			switch(low_four_bit)
+			{
+				case LOW_FOUR_BIT_0: //APP 查询用户使用记录回传
+				{
+				
+				}break;
+				
+				case LOW_FOUR_BIT_1: //APP 查询锁具支持功能回传
+				{
+				
+				}break;
+				
+				default:
+					break;
+			}
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_8)
+		{
+			switch(low_four_bit)
+			{
+				case LOW_FOUR_BIT_0: //APP 操作格式错误回传
+				{
+				
+				}break;
+				
+				default:
+					break;
+			}
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_9)
+		{
+		
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_A)
+		{
+		
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_B)
+		{
+		
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_C)
+		{
+		
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_D)
+		{
+		
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_E)
+		{
+		
+		}
+		else if(high_four_bit == HIGH_FOUR_BIT_F)
+		{
+			switch(low_four_bit)
+			{
+				case LOW_FOUR_BIT_0: //外设参数设置查询
+				{
+				
+				}break;
+				
+				default:
+					break;
+			}
+		}
+	}
+	else
+	{
+		/* 校验和错误或包头错误 */
+		uart_receive_ack_error(receiv[1]);
 	}
 }
 
-void uart_receive_event_callback(app_uart_evt_t * p_event)
+static void uart_receive_event_callback(app_uart_evt_t * p_event)
 {
-    static uint8_t data_array[MCU_ZIGBEE_UART_MAX_LEN];
-    static uint8_t index = 0;
-    //uint32_t       err_code;
+	ret_code_t err_code;
+	err_code = app_timer_stop(uart_receive_timer);
+	APP_ERROR_CHECK(err_code);
+		
+//    static uint8_t data_array[MCU_ZIGBEE_UART_MAX_LEN];
+//    static uint8_t index = 0;
 
     switch (p_event->evt_type)
     {
         case APP_UART_DATA_READY:
-            UNUSED_VARIABLE(app_uart_get(&data_array[index]));
-            index++;
+			UNUSED_VARIABLE(app_uart_get(&uart_receive[uart_receive_len]));
+			if(uart_receive[uart_receive_len] != 0xFF)
+				uart_receive_len++;
+			
+			err_code = app_timer_start(uart_receive_timer, APP_TIMER_TICKS(50), NULL);
+			APP_ERROR_CHECK(err_code);
+		
+//            UNUSED_VARIABLE(app_uart_get(&data_array[index]));
+//            index++;
 
-            if ((data_array[index - 1] == '\n') ||  (data_array[index - 1] == '\r') || (index >= MCU_ZIGBEE_UART_MAX_LEN))
-            {
-                if (index > 1)
-                {
-					uart_send_event_handler(data_array, index);		
-					//ZB_GET_OUT_BUF_DELAYED(report_handler);	
-                }
-
-                index = 0;
-            }
+//            if ((data_array[index - 1] == '\n') ||  (data_array[index - 1] == '\r') || (index >= MCU_ZIGBEE_UART_MAX_LEN))
+//            {
+//                if (index > 1)
+//                {
+//					uart_receive_len = index - 1;
+//					for(uint8_t i = 0; i < uart_receive_len; i++)
+//					{
+//						uart_receive[i] = data_array[i];
+//					}
+//					uart_receive_event_handler(NULL);
+//                }
+//                index = 0;
+//            }
             break;
 
         case APP_UART_COMMUNICATION_ERROR:
@@ -430,7 +820,7 @@ static void uart_init(void)
         .flow_control = APP_UART_FLOW_CONTROL_DISABLED,
         .use_parity   = false,
 #if defined (UART_PRESENT)
-        .baud_rate    = NRF_UART_BAUDRATE_115200
+        .baud_rate    = NRF_UART_BAUDRATE_19200
 #else
         .baud_rate    = NRF_UARTE_BAUDRATE_115200
 #endif
@@ -537,6 +927,9 @@ static void timers_init(void)
     // Initialize timer module.
     err_code = app_timer_init();
     APP_ERROR_CHECK(err_code);
+	
+	err_code = app_timer_create(&uart_receive_timer, APP_TIMER_MODE_SINGLE_SHOT, uart_receive_event_handler);
+    APP_ERROR_CHECK(err_code);
 }
 
 /**@brief Function for initializing the nrf log module.
@@ -624,22 +1017,22 @@ static zb_void_t light_switch_leave_and_join(zb_uint8_t param)
  */
 static void buttons_handler(bsp_event_t evt)
 {
-    zb_uint32_t button;
+//    zb_uint32_t button;
 
-    switch(evt)
-    {
-        case BSP_EVENT_KEY_0:
-            button = LIGHT_SWITCH_BUTTON_ON;
-            break;
+//    switch(evt)
+//    {
+//        case BSP_EVENT_KEY_0:
+//            button = LIGHT_SWITCH_BUTTON_ON;
+//            break;
 
-        case BSP_EVENT_KEY_1:
-            button = LIGHT_SWITCH_BUTTON_OFF;
-            break;
+//        case BSP_EVENT_KEY_1:
+//            button = LIGHT_SWITCH_BUTTON_OFF;
+//            break;
 
-        default:
-            NRF_LOG_INFO("Unhandled BSP Event received: %d", evt);
-            return;
-    }
+//        default:
+//            NRF_LOG_INFO("Unhandled BSP Event received: %d", evt);
+//            return;
+//    }
 
 }
 
@@ -736,167 +1129,151 @@ void zboss_signal_handler(zb_uint8_t param)
 
 /*****************************airborne packet**************************************************/
 /**********************************************************************************************/
+#define AIR_ZIGBEE_MAX_LEN     50
+uint8_t air_sent_len = 0;
+uint8_t air_sent[AIR_ZIGBEE_MAX_LEN];
+uint8_t air_receive_len = 0;
+uint8_t air_receive[AIR_ZIGBEE_MAX_LEN];
 
-static zb_void_t air_recevie_event_handler(zb_uint8_t param)
+zb_void_t air_sent_event(zb_uint8_t param)
 {
-	switch(param)
+	//air_sent[0]:manuf_specific air_sent[1]:cmd_id	
+	zb_buf_t           * p_buf = ZB_BUF_FROM_REF(param);
+	ZB_ZCL_GENERAL_REPORT_HANDLER(p_buf, air_sent, air_sent_len, dst_short_address, air_sent[0], air_sent[1], NULL);
+	air_sent_len = 0;
+}
+static zb_void_t air_sent_event_handler(uint8_t load_len, uint8_t *load_param, uint8_t *param, ...)
+{
+	va_list ap;
+	uint8_t * ptr = NULL;
+	uint8_t sent_len_tmp = 0;
+	va_start(ap, param);
+	for(ptr = param; *ptr; ptr++)
 	{
-		case DOOR_LOCK_COMMADN_LOCK_DOOR:
+		if(*ptr != '%')  
+        {  
+            continue;  
+        }
+		switch(*++ptr)
 		{
-			for(char i = 0; i < rev_cmd.len.lock_door_len; i++)
+			case 'd':
 			{
-				NRF_LOG_INFO("%d", rev_cmd.lock_door[i]);
-			}
-			NRF_LOG_INFO("%d", rev_cmd.len.lock_door_len);
+				
+			}break;
 			
-			dev_ctx.door_lock_attr.lock_state = ZB_ZCL_ATTR_DOOR_LOCK_DOOR_STATE_OPEN;
-			free(rev_cmd.lock_door);
-			rev_cmd.lock_door = NULL;
-		}break;
-		
-		case DOOR_LOCK_COMMADN_UNLOCK_DOOR:
-		{
-			for(char i = 0; i < rev_cmd.len.unlock_door_len; i++)
+			case 'x':
 			{
-				NRF_LOG_INFO("%d", rev_cmd.unlock_door[i]);
-			}
-			NRF_LOG_INFO("%d", rev_cmd.len.unlock_door_len);
+				air_sent[sent_len_tmp++] = va_arg(ap, int);
+			}break;
 			
-			dev_ctx.door_lock_attr.lock_state = ZB_ZCL_ATTR_DOOR_LOCK_DOOR_STATE_CLOSED;
-			free(rev_cmd.unlock_door);
-			rev_cmd.unlock_door = NULL;
-		}break;
-		
-		case DOOR_LOCK_COMMADN_TOGGLE:
+			case 's':
+			{
+				
+			}break;
+			
+			default:
+				break;
+		}
+	}
+	va_end(ap);
+	
+	if(load_param != NULL)
+	{
+		for(char i = 0; i < load_len; i++)
 		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_TOGGLE 0x02\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_UNLOCK_WITH_TIMEOUT:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_UNLOCK_WITH_TIMEOUT 0x03\n");
-			free(rev_cmd.unlock_door);
-			rev_cmd.unlock_door = NULL;
-		}break;
-		
-		case DOOR_LOCK_COMMADN_GET_LOG_RECORD:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_GET_LOG_RECORD 0x04\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_SET_PIN_CODE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_SET_PIN_CODE 0x05\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_GET_PIN_CODE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_GET_PIN_CODE 0x06\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_CLEAR_PIN_CODE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_CLEAR_PIN_CODE 0x07\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_CLEAR_ALL_PIN_STATUS:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_CLEAR_ALL_PIN_STATUS 0x08\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_SET_USER_STATUS:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_SET_USER_STATUS 0x09\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_GET_USER_STATUS:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_GET_USER_STATUS 0x0A\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_SET_WEEKDAY_SCHEDULE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_SET_WEEKDAY_SCHEDULE 0x0B\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_GET_WEEKDAY_SCHEDULE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_GET_WEEKDAY_SCHEDULE 0x0C\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_CLEAR_WEEKDAY_SCHEDULE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_CLEAR_WEEKDAY_SCHEDULE 0x0D\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_SET_YEARDAY_SCHEDULE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_SET_YEARDAY_SCHEDULE 0x0E\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_GET_YEARDAY_SCHEDULE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_GET_YEARDAY_SCHEDULE 0x0F\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_CLEAR_YEARDAY_SCHEDULE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_CLEAR_YEARDAY_SCHEDULE 0x10\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_SET_HOLIDAY_SCHEDULE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_SET_HOLIDAY_SCHEDULE 0x11\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_GET_HOLIDAY_SCHEDULE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_GET_HOLIDAY_SCHEDULE 0x12\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_CLEAR_HOLIDAY_SCHEDULE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_CLEAR_HOLIDAY_SCHEDULE 0x13\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_SET_USER_TYPE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_SET_USER_TYPE 0x14\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_GET_USER_TYPE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_GET_USER_TYPE 0x15\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_SET_RFID_CODE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_SET_RFID_CODE 0x16\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_GET_RFID_CODE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_GET_RFID_CODE 0x17\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_CLEAR_RFID_CODE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_CLEAR_RFID_CODE 0x18\n");
-		}break;
-		
-		case DOOR_LOCK_COMMADN_CLEAR_ALL_RFID_CODE:
-		{
-			NRF_LOG_INFO("DOOR_LOCK_COMMADN_CLEAR_ALL_RFID_CODE 0x19\n");
-		}break;
-		
-		default:
-			break;
-	}		
+			air_sent[sent_len_tmp++] = *(load_param + i);
+		}		
+	}
+	air_sent_len = sent_len_tmp;
+	
+	ZB_GET_OUT_BUF_DELAYED(air_sent_event);
 }
 
-zb_uint8_t air_recevie_event_callback(zb_uint8_t param)
+static zb_void_t air_recevie_event(zb_uint8_t param)
 {
-	zb_ret_t                        zb_err_code;
+	zb_ret_t                       zb_err_code;
+		
+	if((param != 0) && zibee_to_mcu_retry == 1)
+	{
+		zb_err_code = ZB_SCHEDULE_ALARM(air_recevie_event, --param, ZB_TIME_ONE_SECOND);
+		ZB_ERROR_CHECK(zb_err_code);
+	}
+	else
+	{
+		return;
+	}
+	uart_sent_event_handler(air_receive, air_receive_len);
+}
+	
+// 目前只支持%x处理
+static zb_void_t air_recevie_event_handler(uint8_t param1_len, uint8_t *param1, uint8_t param2_len, uint8_t *param2, uint8_t *param,...)
+{
+	va_list ap;
+	uint8_t * ptr = NULL;
+	uint8_t receive_len_tmp = 0;
+	va_start(ap, param);
+	for(ptr = param; *ptr; ptr++)
+	{
+		if(*ptr != '%')  
+        {  
+            continue;  
+        }		
+
+		switch(*++ptr)
+		{
+			case 'd':
+			{
+				
+			}break;
+			
+			case 'x':
+			{
+				air_receive[receive_len_tmp++] = va_arg(ap, int);
+			}break;
+			
+			case 's':
+			{
+				
+			}break;
+			
+			default:
+				break;
+		}
+	}
+	va_end(ap);
+	
+	if (param1 != NULL)
+	{
+		for (char i = 0; i < param1_len; i++)
+		{
+			air_receive[receive_len_tmp++] = *(param1 + i);
+		}		
+	}
+
+	if (param2 != NULL)
+	{
+		for (char i = 0; i < param2_len; i++)
+		{
+			air_receive[receive_len_tmp++] = *(param2 + i);
+		}
+	}
+	
+	uint8_t check_sum = 0;
+	for(char i = 0; i < receive_len_tmp; i++)
+	{
+		check_sum += air_receive[i];
+	}
+	air_receive[receive_len_tmp] = check_sum;
+	air_receive_len = ++receive_len_tmp;
+	
+	zb_ret_t                       zb_err_code;
+	zibee_to_mcu_retry = 1;
+	zb_err_code = ZB_SCHEDULE_ALARM(air_recevie_event, 2, ZB_MILLISECONDS_TO_BEACON_INTERVAL(10));
+    ZB_ERROR_CHECK(zb_err_code);	
+}
+static zb_uint8_t air_recevie_event_callback(zb_uint8_t param)
+{
+	//zb_ret_t                        zb_err_code;
 	zb_uint16_t						profile_id;
 	zb_uint16_t                     cluster_id;
     zb_uint16_t                     cmd_id;
@@ -915,7 +1292,7 @@ zb_uint8_t air_recevie_event_callback(zb_uint8_t param)
 	NRF_LOG_INFO("\n**profile_id %x**cluster_id %x**cmd_id %x**manuf_specific %x**common_command %x", profile_id, cluster_id, cmd_id, manuf_specific, common_command);
 	
 	zb_uint8_t buf_len = ZB_BUF_LEN_BY_REF(param);
-	zb_uint8_t * buf_data = ZB_BUF_BEGIN_FROM_REF(param);
+	zb_uint8_t * buf = ZB_BUF_BEGIN_FROM_REF(param);
 //	zb_uint8_t buf_len = ZB_BUF_LEN_BY_REF(param);
 //	NRF_LOG_INFO("len = %d", buf_len);
 //	zb_uint8_t * buf_data = ZB_BUF_BEGIN_FROM_REF(param);
@@ -937,25 +1314,59 @@ zb_uint8_t air_recevie_event_callback(zb_uint8_t param)
 			{
 				case DOOR_LOCK_COMMADN_LOCK_DOOR:
 				{
-					if(rev_cmd.lock_door == NULL)
+					switch(buf[0])
 					{
-						rev_cmd.lock_door = (zb_uint8_t *)calloc(buf_len, sizeof(zb_uint8_t));
-						memcpy(rev_cmd.lock_door, buf_data, buf_len);
-						rev_cmd.len.lock_door_len = buf_len;
-						zb_err_code = ZB_SCHEDULE_ALARM(air_recevie_event_handler, DOOR_LOCK_COMMADN_LOCK_DOOR, ZB_TIME_ONE_SECOND);
-						ZB_ERROR_CHECK(zb_err_code);
+						case 4:
+						{
+							
+						}break;	
+						
+						case 5:
+						{
+							
+						}break;	
+						
+						case 6:
+						{
+							for(char i = 1; i < buf_len; i++)
+							{
+								buf[i] -= '0';
+							}
+							air_recevie_event_handler(buf_len, buf, 0, NULL, Param_Num_5, Zb_Mcu_Fill_Reserve(0x11, ZB_MCU_LOAD_LEN_0x11));
+							
+//							air_recevie_event_handler("%x%x%x%x%x%x%x%x%x%x%x%x", UART_PROTOCOL_HEADER_FIELD, 0x11, UART_PROTOCOL_RESERVE_FIELD,
+//								0x00, 0x08, buf[0], buf[1] - '0', buf[2] - '0', buf[3] - '0', buf[4] - '0', buf[5] - '0', buf[6] - '0');
+						}break;	
+						
+						case 7:
+						{
+							
+						}break;	
+						
+						case 8:
+						{
+						
+						}break;	
+						
+						default:
+							break;
 					}
+								
+					//zb_err_code = ZB_SCHEDULE_ALARM(air_recevie_event_handler, DOOR_LOCK_COMMADN_LOCK_DOOR, ZB_TIME_ONE_SECOND);
+					//ZB_ERROR_CHECK(zb_err_code);
 				}break;
 				
 				case DOOR_LOCK_COMMADN_UNLOCK_DOOR:
 				{
-					if(rev_cmd.unlock_door == NULL)
+					switch(buf[0])
 					{
-						rev_cmd.unlock_door = (zb_uint8_t *)calloc(buf_len, sizeof(zb_uint8_t));
-						memcpy(rev_cmd.unlock_door, buf_data, buf_len);
-						rev_cmd.len.unlock_door_len = buf_len;
-						zb_err_code = ZB_SCHEDULE_ALARM(air_recevie_event_handler, DOOR_LOCK_COMMADN_UNLOCK_DOOR, ZB_TIME_ONE_SECOND);
-						ZB_ERROR_CHECK(zb_err_code);
+						case 6:
+						{
+						
+						}break;	
+						
+						default:
+							break;
 					}
 				}break;
 				
@@ -967,11 +1378,6 @@ zb_uint8_t air_recevie_event_callback(zb_uint8_t param)
 				case DOOR_LOCK_COMMADN_UNLOCK_WITH_TIMEOUT:
 				{
 					//NRF_LOG_INFO("DOOR_LOCK_COMMADN_UNLOCK_WITH_TIMEOUT 0x03\n");
-						rev_cmd.unlock_with_timeout = (zb_uint8_t *)calloc(buf_len, sizeof(zb_uint8_t));
-						memcpy(rev_cmd.unlock_with_timeout, buf_data, buf_len);
-						rev_cmd.len.unlock_with_timeout_len = buf_len;
-						zb_err_code = ZB_SCHEDULE_ALARM(air_recevie_event_handler, DOOR_LOCK_COMMADN_UNLOCK_WITH_TIMEOUT, ZB_TIME_ONE_SECOND * 3);
-						ZB_ERROR_CHECK(zb_err_code);
 				}break;
 				
 				case DOOR_LOCK_COMMADN_GET_LOG_RECORD:
@@ -1089,13 +1495,23 @@ zb_uint8_t air_recevie_event_callback(zb_uint8_t param)
 					break;
 			}
 		}
-		else if(profile_id == ZB_AF_HA_PROFILE_ID && cluster_id == ZB_ZCL_CLUSTER_ID_DOOR_LOCK && manuf_specific == MAMUFAC_SPECIFIC_BIT)
+		else if(profile_id == ZB_AF_HA_PROFILE_ID && cluster_id == ZB_ZCL_CLUSTER_ID_DOOR_LOCK && manuf_specific == MANUFAC_SPECIFIC_BIT)
 		{
 			switch(cmd_id)
 			{
 				case DOOR_LOCK_COMMADN_MANUF_ADD_USER:
 				{
-					NRF_LOG_INFO("DOOR_LOCK_COMMADN_MANUF_ADD_USER");
+					memset(&door_lock, 0, sizeof(zb_door_lock_param_t));
+					door_lock.add_user.user_id = (buf[2] << 8) | buf[1];
+					door_lock.add_user.user_type = buf[3];
+					door_lock.add_user.code_type = buf[4];
+					door_lock.add_user.code_len = buf[5];
+					memcpy(door_lock.add_user.code, &buf[6], door_lock.add_user.code_len);
+					memcpy(door_lock.add_user.start_time, &buf[6 + door_lock.add_user.code_len], 6);
+					memcpy(door_lock.add_user.end_time, &buf[13 + door_lock.add_user.code_len], 6);
+				
+					air_recevie_event_handler(door_lock.add_user.code_len, door_lock.add_user.code, 12,		\
+						door_lock.add_user.start_time, Param_Num_5, Zb_Mcu_Fill_Reserve(0x13, ZB_MCU_LOAD_LEN_0x13));
 				}break;
 				
 				case DOOR_LOCK_COMMADN_MANUF_DELETE_USER:
@@ -1103,19 +1519,28 @@ zb_uint8_t air_recevie_event_callback(zb_uint8_t param)
 					NRF_LOG_INFO("DOOR_LOCK_COMMADN_MANUF_DELETE_USER");
 				}break;
 				
-				case DOOR_LOCK_COMMADN_MANUF_DELETE_ALL_USER:
-				{
-					NRF_LOG_INFO("DOOR_LOCK_COMMADN_MANUF_DELETE_ALL_USER");
-				}break;
-				
 				case DOOR_LOCK_COMMADN_MANUF_CHANGE_CODE:
 				{
 					NRF_LOG_INFO("DOOR_LOCK_COMMADN_MANUF_CHANGE_CODE");
+					
+				}break;
+				
+				case DOOR_LOCK_COMMADN_ADMIN_VERIFY_CODE:
+				{					
+					
 				}break;
 				
 				case DOOR_LOCK_COMMADN_MANUF_TIME_SYNC:
 				{
-					NRF_LOG_INFO("DOOR_LOCK_COMMADN_MANUF_TIME_SYNC");
+					//NRF_LOG_INFO("DOOR_LOCK_COMMADN_MANUF_TIME_SYNC");
+					if(buf[0] == 6)
+					{					
+						air_recevie_event_handler(buf[0], &buf[1], 0, NULL, Param_Num_5, Zb_Mcu_Fill_Reserve(0x12, ZB_MCU_LOAD_LEN_0x12));	
+					}
+					else
+					{
+						//时间格式错误 -- 上报
+					}
 				}break;
 				
 				case DOOR_LOCK_COMMADN_MANUF_GET_USER_INFO:

@@ -397,6 +397,11 @@
               <FileType>5</FileType>
               <FilePath>..\..\..\wl_door_lock_config.h</FilePath>
             </File>
+            <File>
+              <FileName>wl_door_lock_uart_cmd.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>..\..\..\wl_door_lock_uart_cmd.h</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

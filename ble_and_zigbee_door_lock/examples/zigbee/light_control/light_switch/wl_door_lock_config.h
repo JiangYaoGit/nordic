@@ -5,6 +5,31 @@
 #define WL_DOOR_LOCK_CONFIG_H
 
 #include "zboss_api.h"
+#include "stdint.h"
+
+
+enum zb_zcl_door_lock_ext_attr_e
+{
+	ZB_ZCL_ATTR_DOOR_LOCK_NUMBER_OF_FIGNER_USRE_SUPPORTED_ID		= 0x8000,
+	ZB_ZCL_ATTR_DOOR_LOCK_ADD_USER_EVENT_ID                        	= 0x8100,
+	ZB_ZCL_ATTR_DOOR_LOCK_DELETE_USER_EVENT_ID                 		= 0x8200,
+	ZB_ZCL_ATTR_DOOR_LOCK_CHANGE_CODE_EVENT_ID  					= 0x8300,
+	ZB_ZCL_ATTR_DOOR_LOCK_ADMIN_VERIFY_EVENT_ID  					= 0x8400,
+	ZB_ZCL_ATTR_DOOR_LOCK_TIMER_STATE_ID		  					= 0x9000,
+	ZB_ZCL_ATTR_DOOR_LOCK_USER_LIST_EVENT_ID		  				= 0x9100,
+	ZB_ZCL_ATTR_DOOR_LOCK_LOCK_PARAM_EVENT_ID		  				= 0x9200,
+	ZB_ZCL_ATTR_DOOR_LOCK_SUPPORT_FUNCTION_EVENT_ID		  			= 0x9201,
+	ZB_ZCL_ATTR_DOOR_LOCK_CUSTOM_UNLOCK_MODE_ID		  				= 0x9A00,	
+	ZB_ZCL_ATTR_DOOR_LOCK_PRYING_RESISTANT_ID		  				= 0xF000,
+	ZB_ZCL_ATTR_DOOR_LOCK_HIJACKING_PREVENTION_ID		  			= 0xF001,
+	ZB_ZCL_ATTR_DOOR_LOCK_SYSTEM_LOCK_ID		  					= 0xF002,
+	ZB_ZCL_ATTR_DOOR_LOCK_VOLTAGE_LEVEL_ID		  					= 0xF003,
+	ZB_ZCL_ATTR_DOOR_LOCK_BACK_LOCK_ID		  						= 0xF004,
+	ZB_ZCL_ATTR_DOOR_LOCK_DOOR_BELL_ID		  						= 0xF005,
+	ZB_ZCL_ATTR_DOOR_LOCK_FACTORY_SETTING_ID		  				= 0xF006,
+	ZB_ZCL_ATTR_DOOR_LOCK_VERIFY_CODE_ID		  					= 0xF007,
+	ZB_ZCL_ATTR_DOOR_LOCAL_STAY_ID				  					= 0xF008,
+};
 
 // <<< Use Configuration Wizard in Context Menu >>>\n
 
@@ -557,35 +582,39 @@
 // <e> Door Lock Command : WULIAN CUSTOM
 
 #ifndef DOOR_LOCK_COMMADN_MANUF_ADD_USER
-#define DOOR_LOCK_COMMADN_MANUF_ADD_USER 0x80
+#define DOOR_LOCK_COMMADN_MANUF_ADD_USER 0x00
 #endif
 
 #ifndef DOOR_LOCK_COMMADN_MANUF_DELETE_USER
-#define DOOR_LOCK_COMMADN_MANUF_DELETE_USER 0x81
-#endif
-
-#ifndef DOOR_LOCK_COMMADN_MANUF_DELETE_ALL_USER
-#define DOOR_LOCK_COMMADN_MANUF_DELETE_ALL_USER 0x82
+#define DOOR_LOCK_COMMADN_MANUF_DELETE_USER 0x01
 #endif
 
 #ifndef DOOR_LOCK_COMMADN_MANUF_CHANGE_CODE
-#define DOOR_LOCK_COMMADN_MANUF_CHANGE_CODE 0x83
+#define DOOR_LOCK_COMMADN_MANUF_CHANGE_CODE 0x02
+#endif
+
+#ifndef DOOR_LOCK_COMMADN_ADMIN_VERIFY_CODE
+#define DOOR_LOCK_COMMADN_ADMIN_VERIFY_CODE 0x03
 #endif
 
 #ifndef DOOR_LOCK_COMMADN_MANUF_TIME_SYNC
-#define DOOR_LOCK_COMMADN_MANUF_TIME_SYNC 0x90
+#define DOOR_LOCK_COMMADN_MANUF_TIME_SYNC 0x10
 #endif
 
 #ifndef DOOR_LOCK_COMMADN_MANUF_GET_USER_INFO
-#define DOOR_LOCK_COMMADN_MANUF_GET_USER_INFO 0x10
+#define DOOR_LOCK_COMMADN_MANUF_GET_USER_INFO 0x20
 #endif
 
 #ifndef DOOR_LOCK_COMMADN_MANUF_GET_DEV_INFO
-#define DOOR_LOCK_COMMADN_MANUF_GET_DEV_INFO 0x11
+#define DOOR_LOCK_COMMADN_MANUF_GET_DEV_INFO 0x21
+#endif
+
+#ifndef DOOR_LOCK_COMMADN_MANUF_CUSTOM_FORMAT
+#define DOOR_LOCK_COMMADN_MANUF_CUSTOM_FORMAT 0x2F
 #endif
 
 #ifndef DOOR_LOCK_COMMADN_MANUF_STATE_REPORT
-#define DOOR_LOCK_COMMADN_MANUF_STATE_REPORT 0xF0
+#define DOOR_LOCK_COMMADN_MANUF_STATE_REPORT 0x70
 #endif
 
 // </e> 
@@ -932,8 +961,110 @@ typedef struct
 								}												\
 							}
 
-						
 
 
 
+/**************************************add user*************************************************/
+							
+typedef enum
+{
+    MASTER_USER,
+	GENERAL_USER,
+	TEMPRORARY_USER,
+	NOT_USER_SUPPORT = 0xff
+}add_user_type_t;
+
+typedef enum
+{
+    PIN_CODE,
+	RFID_CODE,
+	FIGNER_CODE,
+	NOT_CODE_SUPPORT = 0xff
+}code_type_t;
+
+typedef struct 
+{
+	uint16_t user_id;
+	uint8_t user_type;
+	uint8_t code_type;
+	uint8_t code_len;
+	uint8_t code[15];
+	uint8_t start_time[7];
+	uint8_t end_time[7];
+}add_user_param_t;
+
+/**************************************add user*************************************************/	
+/**************************************delete user**********************************************/	
+
+typedef enum
+{
+    SIGNAL_USER,
+	ALL_GENERAL_USER,
+	ALL_TEMPRORARY_USER,
+	ALL_USER
+}delet_user_type_t;
+
+typedef struct 
+{
+	uint16_t user_id;
+	uint8_t delete_type;
+}delete_user_param_t;
+
+/**************************************delete user**********************************************/
+/**************************************change user**********************************************/
+
+typedef struct 
+{
+	uint16_t user_id;
+	uint8_t code_type;
+	uint8_t code_len;
+	uint8_t code[10];
+}change_user_param_t;
+
+/**************************************change user**********************************************/
+/**************************************admin verify*********************************************/
+
+typedef struct 
+{
+	uint16_t user_id;
+	uint8_t code_type;
+	uint8_t admin_code_len;
+	uint8_t admin_code[10];
+}admin_verify_param_t;
+
+/**************************************admin verify*********************************************/
+/**************************************time sync************************************************/
+
+typedef struct 
+{
+	uint8_t time[10];
+}time_sync_param_t;
+
+/**************************************time sync************************************************/
+
+//typedef struct 
+//{
+//	uint8_t cmd_id;
+//	uint8_t specific_bit;
+//	union
+//	{
+//		add_user_param_t add_user;
+//		delete_user_param_t delete_user;
+//		change_user_param_t change_user;
+//		admin_verify_param_t admin_user;
+//		time_sync_param_t time_sync;
+//	}common;
+//}zb_door_lock_union_param_t;
+//#define ZB_DOOR_LOCK_PROTOCOL_UNION_DEF(name)		zb_door_lock_union_param_t	name##_union;
+
+
+typedef struct 
+{
+	add_user_param_t add_user;
+	delete_user_param_t delete_user;
+	change_user_param_t change_user;
+	admin_verify_param_t admin_user;
+	time_sync_param_t time_sync;
+}zb_door_lock_param_t;
+#define ZB_DOOR_LOCK_PROTOCOL_DEF(name)		zb_door_lock_param_t	name;
 
