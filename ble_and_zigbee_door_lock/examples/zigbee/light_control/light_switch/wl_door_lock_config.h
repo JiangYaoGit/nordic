@@ -213,7 +213,7 @@ enum zb_zcl_door_lock_ext_attr_e
 
 // <q> DOOR_LOCK_ATTR_NUMBER_OF_LOG_RECORDS_SUPPORTED
 #ifndef DOOR_LOCK_ATTR_NUMBER_OF_LOG_RECORDS_SUPPORTED
-#define DOOR_LOCK_ATTR_NUMBER_OF_LOG_RECORDS_SUPPORTED 0
+#define DOOR_LOCK_ATTR_NUMBER_OF_LOG_RECORDS_SUPPORTED 1
 #endif
 
 // <q> DOOR_LOCK_ATTR_NUMBER_OF_TOTAL_USERS_SUPPORTED
@@ -233,18 +233,18 @@ enum zb_zcl_door_lock_ext_attr_e
 
 // <q> DOOR_LOCK_ATTR_NUMBER_OF_WEEKDAY_SCHEDULES_SUPPORTED_PER_USER
 #ifndef DOOR_LOCK_ATTR_NUMBER_OF_WEEKDAY_SCHEDULES_SUPPORTED_PER_USER
-#define DOOR_LOCK_ATTR_NUMBER_OF_WEEKDAY_SCHEDULES_SUPPORTED_PER_USER 1
+#define DOOR_LOCK_ATTR_NUMBER_OF_WEEKDAY_SCHEDULES_SUPPORTED_PER_USER 0
 #endif
 
 // <q> DOOR_LOCK_ATTR_NUMBER_OF_YEARDAY_SCHEDULES_SUPPORTED_PER_USER
 #ifndef DOOR_LOCK_ATTR_NUMBER_OF_YEARDAY_SCHEDULES_SUPPORTED_PER_USER
-#define DOOR_LOCK_ATTR_NUMBER_OF_YEARDAY_SCHEDULES_SUPPORTED_PER_USER 1
+#define DOOR_LOCK_ATTR_NUMBER_OF_YEARDAY_SCHEDULES_SUPPORTED_PER_USER 0
 #endif
 
 
 // <q> DOOR_LOCK_ATTR_NUMBER_OF_HOLIDAY_SCHEDULES_SUPPORTED
 #ifndef DOOR_LOCK_ATTR_NUMBER_OF_HOLIDAY_SCHEDULES_SUPPORTED
-#define DOOR_LOCK_ATTR_NUMBER_OF_HOLIDAY_SCHEDULES_SUPPORTED 1
+#define DOOR_LOCK_ATTR_NUMBER_OF_HOLIDAY_SCHEDULES_SUPPORTED 0
 #endif
 
 // <q> DOOR_LOCK_ATTR_MAX_PIN_CODE_LENGTH
@@ -369,7 +369,7 @@ enum zb_zcl_door_lock_ext_attr_e
 
 // <q> DOOR_LOCK_ATTR_ALARM_MASK
 #ifndef DOOR_LOCK_ATTR_ALARM_MASK
-#define DOOR_LOCK_ATTR_ALARM_MASK 0
+#define DOOR_LOCK_ATTR_ALARM_MASK 1
 #endif
 
 // <q> DOOR_LOCK_ATTR_KEYPAD_OPERATION_EVENT_MASK
@@ -594,7 +594,7 @@ enum zb_zcl_door_lock_ext_attr_e
 #endif
 
 #ifndef DOOR_LOCK_COMMADN_ADMIN_VERIFY_CODE
-#define DOOR_LOCK_COMMADN_ADMIN_VERIFY_CODE 0x03
+#define DOOR_LOCK_COMMADN_ADMIN_VERIFY_CODE 0x04
 #endif
 
 #ifndef DOOR_LOCK_COMMADN_MANUF_TIME_SYNC
@@ -968,9 +968,9 @@ typedef struct
 							
 typedef enum
 {
-    MASTER_USER,
-	GENERAL_USER,
-	TEMPRORARY_USER,
+    MASTER_USER = 0x00,
+	GENERAL_USER = 0x01,
+	TEMPRORARY_USER = 0x02,
 	NOT_USER_SUPPORT = 0xff
 }add_user_type_t;
 
@@ -1042,20 +1042,20 @@ typedef struct
 
 /**************************************time sync************************************************/
 
-//typedef struct 
-//{
-//	uint8_t cmd_id;
-//	uint8_t specific_bit;
-//	union
-//	{
-//		add_user_param_t add_user;
-//		delete_user_param_t delete_user;
-//		change_user_param_t change_user;
-//		admin_verify_param_t admin_user;
-//		time_sync_param_t time_sync;
-//	}common;
-//}zb_door_lock_union_param_t;
-//#define ZB_DOOR_LOCK_PROTOCOL_UNION_DEF(name)		zb_door_lock_union_param_t	name##_union;
+typedef struct 
+{
+	uint8_t cmd_id;
+	uint8_t specific_bit;
+	union
+	{
+		add_user_param_t add_user;
+		delete_user_param_t delete_user;
+		change_user_param_t change_user;
+		admin_verify_param_t admin_verify;
+		time_sync_param_t time_sync;
+	}common;
+}zb_door_lock_union_param_t;
+#define ZB_DOOR_LOCK_PROTOCOL_UNION_DEF(name)		zb_door_lock_union_param_t	name##_union;
 
 
 typedef struct 
@@ -1063,8 +1063,133 @@ typedef struct
 	add_user_param_t add_user;
 	delete_user_param_t delete_user;
 	change_user_param_t change_user;
-	admin_verify_param_t admin_user;
+	admin_verify_param_t admin_verify;
 	time_sync_param_t time_sync;
 }zb_door_lock_param_t;
 #define ZB_DOOR_LOCK_PROTOCOL_DEF(name)		zb_door_lock_param_t	name;
+
+
+
+/**************************************enum zigbee event**********************************************************/
+
+/**************************************enum zigbee operation event************************************************/
+typedef enum
+{
+	OPERATION_KEYPAD = 0x00,
+	OPERATION_RF = 0x01,
+	OPERATION_MANUAL = 0x02,
+	OPERATION_RFID = 0x03,
+	OPERATION_FINGER = 0xF0,
+}operation_event_sources_e;
+
+typedef enum
+{
+	KEYPAD_OPERATION_BIT0 = 0x00,		//Unknown or manufacturer-specific keypad operation event
+	KEYPAD_OPERATION_BIT1 = 0x01,		//Lock, source: keypad
+	KEYPAD_OPERATION_BIT2 = 0x02,		//Unlock, source: keypad
+	KEYPAD_OPERATION_BIT3 = 0x03,		//Lock, source: keypad, error: invalid PIN
+	KEYPAD_OPERATION_BIT4 = 0x04,		//Lock, source: keypad, error: invalid schedule
+	KEYPAD_OPERATION_BIT5 = 0x05,		//Unlock, source: keypad, error: invalid code
+	KEYPAD_OPERATION_BIT6 = 0x06,		//Unlock, source: keypad, error: invalid schedule
+	KEYPAD_OPERATION_BITF = 0x0F,		//Non-Access User operation event, source keypad
+}keypad_operation_event_code_e;
+
+
+typedef enum
+{
+	RF_OPERATION_BIT0 = 0x00,			//Unknown or manufacturer-specific RF operation event
+	RF_OPERATION_BIT1 = 0x01,			//Lock, source: RF
+	RF_OPERATION_BIT2 = 0x02,			//Unlock, source: RF
+	RF_OPERATION_BIT3 = 0x03,			//Lock, source: RF, error: invalid code
+	RF_OPERATION_BIT4 = 0x04,			//Lock, source: RF, error: invalid schedule
+	RF_OPERATION_BIT5 = 0x05,			//Unlock, source: RF, error: invalid code
+	RF_OPERATION_BIT6 = 0x06,			//Unlock, source: RF, error: invalid schedule
+}rf_operation_event_code_e;
+
+
+typedef enum
+{
+	MANUAL_OPERATION_BIT0 = 0x00,		//Unknown or manufacturer-specific manual operation event
+	MANUAL_OPERATION_BIT1 = 0x01,		//Thumbturn Lock
+	MANUAL_OPERATION_BIT2 = 0x02,		//Thumbturn Unlock
+	MANUAL_OPERATION_BIT7 = 0x07,		//One touch lock
+	MANUAL_OPERATION_BIT8 = 0x08,		//Key Lock
+	MANUAL_OPERATION_BIT9 = 0x09,		//Key Unlock
+	MANUAL_OPERATION_BITA = 0x0A,		//Auto lock
+	MANUAL_OPERATION_BITB = 0x0B,		//Schedule Lock
+	MANUAL_OPERATION_BITC = 0x0C,		//Schedule Unlock
+	MANUAL_OPERATION_BITD = 0x0D,		//Manual Lock (Key or Thumbturn)
+	MANUAL_OPERATION_BITE = 0x0E,		//Manual Unlock (Key or Thumbturn)
+}manual_operation_event_code_e;
+
+typedef enum
+{
+	RFID_OPERATION_BIT0 = 0x00,			//Unknown or manufacturer-specific keypad operation event
+	RFID_OPERATION_BIT1 = 0x01,			//Lock, source: RFID
+	RFID_OPERATION_BIT2 = 0x02,			//Unlock, source: RFID
+	RFID_OPERATION_BIT3 = 0x03,			//Lock, source: RFID, error: invalid RFID ID
+	RFID_OPERATION_BIT4 = 0x04,			//Lock, source: RFID, error: invalid schedule
+	RFID_OPERATION_BIT5 = 0x05,			//Unlock, source: RFID, error: invalid RFID ID
+	RFID_OPERATION_BIT6 = 0x06,			//Unlock, source: RFID, error: invalid schedule
+}rfid_operation_event_code_e;
+
+typedef enum
+{
+	FINGER_OPERATION_BIT0 = 0x00,			//Unknown or manufacturer-specific finger operation event
+	FINGER_OPERATION_BIT1 = 0x01,			//Lock, source: finger
+	FINGER_OPERATION_BIT2 = 0x02,			//Unlock, source: finger
+	FINGER_OPERATION_BIT3 = 0x03,			//Lock, source: finger, error: invalid finger ID
+	FINGER_OPERATION_BIT4 = 0x04,			//Lock, source: finger, error: invalid schedule
+	FINGER_OPERATION_BIT5 = 0x05,			//Unlock, source: finger, error: invalid finger ID
+	FINGER_OPERATION_BIT6 = 0x06,			//Unlock, source: finger, error: invalid schedule
+}finger_operation_event_code_e;
+
+/**************************************enum zigbee operation event************************************************/
+
+/**************************************enum zigbee programming event**********************************************/
+typedef enum
+{
+	PROGRAMMING_KEYPAD = 0x00,
+	PROGRAMMING_RF = 0x01,
+	PROGRAMMING_RESERVED = 0x02,
+	PROGRAMMING_RFID = 0x03,
+}programming_event_sources_e;
+
+typedef enum
+{
+	KEYPAD_PROGRAMMING_BIT0 = 0x00,		//Unknown or manufacturer-specific keypad programming event
+	KEYPAD_PROGRAMMING_BIT1 = 0x01,		//Master code changed, source: keypad
+	KEYPAD_PROGRAMMING_BIT2 = 0x02,		//PIN added, source: keypad
+	KEYPAD_PROGRAMMING_BIT3 = 0x03,		//PIN deleted, source: keypad
+	KEYPAD_PROGRAMMING_BIT4 = 0x04,		//PIN changed, source: keypad
+}keypad_programming_event_code_e;
+
+
+typedef enum
+{
+	RF_PROGRAMMING_BIT0 = 0x00,			//Unknown or manufacturer-specific RF programming event
+	RF_PROGRAMMING_BIT2 = 0x02,			//PIN added, source RF
+	RF_PROGRAMMING_BIT3 = 0x03,			//PIN deleted, source RF
+	RF_PROGRAMMING_BIT4 = 0x04,			//PIN changed
+	RF_PROGRAMMING_BIT5 = 0x05,			//RFID code added, Source RF
+	RF_PROGRAMMING_BIT6 = 0x06,			//RFID code deleted, Source RF
+}rf_programming_event_code_e;
+
+
+typedef enum
+{
+	RESERVE_PROGRAMMING_BIT0 = 0x00,
+}reserve_programming_event_code_e;
+
+typedef enum
+{
+	RFID_PROGRAMMING_BIT0 = 0x01,		//Unknown or manufacturer-specific keypad programming event
+	RFID_PROGRAMMING_BIT5 = 0x05,		//ID Added, Source: RFID
+	RFID_PROGRAMMING_BIT6 = 0x06,		//ID Deleted, Source: RFID
+}rfid_programming_event_code_e;
+/**************************************enum zigbee programming event**********************************************/
+/**************************************enum zigbee event**********************************************************/
+
+
+
 

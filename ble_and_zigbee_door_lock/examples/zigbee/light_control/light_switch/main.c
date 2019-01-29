@@ -125,25 +125,26 @@ typedef struct light_switch_ctx_s
 #define BULB_INIT_BASIC_LOCATION_DESC     "Office desk"                         /**< Describes the physical location of the device (16 bytes). May be modified during commisioning process. */
 #define BULB_INIT_BASIC_PH_ENV            ZB_ZCL_BASIC_ENV_UNSPECIFIED  
 
-/************************************************************************************************************/
-/*****************************************state reporting****************************************************/
+/****************************************************************************************************************************/
+/*****************************************************state reporting********************************************************/
 //zcl头控制字段
-#define GOLBAL_COMMAND                    1 
-#define SPECIFIC_CLUSTER_COMMAND          0
+
+#define GOLBAL_COMMAND                    0x01 		//与标准文档正好相反，此处需要注意，原因有待查证
+#define SPECIFIC_CLUSTER_COMMAND          0x00
 #define MANUFAC_SPECIFIC_BIT              ZB_ZCL_MANUFACTURER_SPECIFIC
 #define ZIGBEE_STANDART_BIT               ZB_ZCL_NOT_MANUFACTURER_SPECIFIC 
 #define MANUFAC_CODE  					  0xEE00        //厂商编号，zigbee联盟分配
 zb_uint16_t dst_short_address = 0;
 //ZB_GET_OUT_BUF_DELAYED(air_sent_event_handler);
 
-#define ZB_ZCL_GENERAL_REPORT_HANDLER(buffer, load_buf, load_len, addr, manuf_specific, cmd_id_manuf, cb)   \
+#define ZB_ZCL_DOOR_LOCK_SEND_CUSTOM_EVENT_NOTIFICATION(buffer, addr, load_buf, load_len,cmd_id_manuf, cb)  \
 {  																											\
 	zb_uint8_t* ptr =NULL;																					\
 	ptr = ZB_ZCL_START_PACKET(buffer)                                               				 		\
 	ZB_ZCL_CONSTRUCT_SPECIFIC_COMMAND_RESP_FRAME_CONTROL_A(													\
-		ptr, ZB_ZCL_FRAME_DIRECTION_TO_CLI, manuf_specific); 												\
+		ptr, ZB_ZCL_FRAME_DIRECTION_TO_CLI, ZB_ZCL_MANUFACTURER_SPECIFIC); 									\
 	ZB_ZCL_CONSTRUCT_COMMAND_HEADER_EXT(																	\
-		ptr, ZB_ZCL_GET_SEQ_NUM(), manuf_specific, MANUFAC_CODE, cmd_id_manuf); 		    				\
+		ptr, ZB_ZCL_GET_SEQ_NUM(), ZB_ZCL_MANUFACTURER_SPECIFIC, MANUFAC_CODE, cmd_id_manuf); 		    	\
 	for(char i = 2; i < load_len; i++)    					\
 	{ 													    \
 		ZB_ZCL_PACKET_PUT_DATA8(ptr, load_buf[i]);			\
@@ -153,8 +154,47 @@ zb_uint16_t dst_short_address = 0;
 	ZB_AF_HA_PROFILE_ID, ZB_ZCL_CLUSTER_ID_DOOR_LOCK, cb);   											    \
 }
 
-/*****************************************state reporting****************************************************/
-/************************************************************************************************************/
+
+#define ZB_ZCL_DOOR_LOCK_SEND_OPERATION_EVENT_NOTIFICATION(buffer,                    						\
+															addr,                                  			\
+															load_buf, 										\
+															load_len)                              			\
+{                                                                                    				 		\
+	zb_uint8_t* ptr = ZB_ZCL_START_PACKET(buffer);                                     				 		\
+	ZB_ZCL_CONSTRUCT_SPECIFIC_COMMAND_RES_FRAME_CONTROL(ptr);                          				 		\
+	ZB_ZCL_CONSTRUCT_COMMAND_HEADER(ptr, ZB_ZCL_GET_SEQ_NUM(), ZB_ZCL_CMD_DOOR_LOCK_OPERATION_EVENT_NOTIFICATION_ID);	\
+	for(char i = 0; i < load_len; i++)    					\
+	{ 													    \
+		ZB_ZCL_PACKET_PUT_DATA8(ptr, load_buf[i]);			\
+	}                                               		\
+	ZB_ZCL_FINISH_PACKET(buffer, ptr)                                                   					\
+	ZB_ZCL_SEND_COMMAND_SHORT(buffer, addr, ZB_APS_ADDR_MODE_16_ENDP_PRESENT, 1, HA_DOOR_LOCK_ENDPOINT,     \
+                            ZB_AF_HA_PROFILE_ID, ZB_ZCL_CLUSTER_ID_DOOR_LOCK, NULL);   						\
+}
+
+
+#define ZB_ZCL_DOOR_LOCK_SEND_PROGRAMMMING_EVENT_NOTIFICATION(buffer,                    			\
+															addr,                                   \
+															load_buf, 								\
+															load_len)                               \
+{                                                                                    				  \
+	zb_uint8_t* ptr = ZB_ZCL_START_PACKET(buffer);                                     				  \
+	ZB_ZCL_CONSTRUCT_SPECIFIC_COMMAND_RES_FRAME_CONTROL(ptr);                          				  \
+	ZB_ZCL_CONSTRUCT_COMMAND_HEADER(ptr, ZB_ZCL_GET_SEQ_NUM(), ZB_ZCL_CMD_DOOR_LOCK_PROGRAMMING_EVENT_NOTIFICATION);	\
+	for(char i = 0; i < load_len; i++)    					\
+	{ 													    \
+		ZB_ZCL_PACKET_PUT_DATA8(ptr, load_buf[i]);			\
+	}                                               		\
+	ZB_ZCL_FINISH_PACKET(buffer, ptr)                                                   					\
+	ZB_ZCL_SEND_COMMAND_SHORT(buffer, addr, ZB_APS_ADDR_MODE_16_ENDP_PRESENT, 1, HA_DOOR_LOCK_ENDPOINT,     \
+                            ZB_AF_HA_PROFILE_ID, ZB_ZCL_CLUSTER_ID_DOOR_LOCK, NULL);   						\
+}
+
+//以下数组为zigbee标准上报事件个格式，具体含义可看文档
+char operation_event_format[15] = {0x00,0x00,0xFE,0xFE,0x06,0x01,0x02,0x03,0x04,0x05,0x06,0x08,0x08,0x08,0x08};
+char programming_event_format[20] = {0x00,0x00,0xFE,0xFE,0x06,0x01,0x02,0x03,0x04,0x05,0x06,0xFF,0xFF,0x08,0x08,0x08,0x08};
+/*****************************************************state reporting********************************************************/
+/****************************************************************************************************************************/
 
 /* Main application customizable context. Stores all settings and static values. */
 typedef struct
@@ -260,7 +300,8 @@ ZB_ZCL_DECLARE_BASIC_ATTRIB_LIST_HA_ADDS_FULL(basic_attr_list,
 														number_of_pin_users_supported,			\
 														max_pin_code_length,					\
 														min_pin_code_length,					\
-														atuo_relock_time)   					\
+														atuo_relock_time,   					\
+														keypad_operation_event_mask)   			\
 	ZB_ZCL_START_DECLARE_ATTRIB_LIST(attr_list)                                         		\
 	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_DOOR_LOCK_LOCK_STATE_ID, (lock_state))             		\
 	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_DOOR_LOCK_LOCK_TYPE_ID, (lock_type))               		\
@@ -270,6 +311,7 @@ ZB_ZCL_DECLARE_BASIC_ATTRIB_LIST_HA_ADDS_FULL(basic_attr_list,
 	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_DOOR_LOCK_MAX_PIN_LEN_ID, (max_pin_code_length)) 			\
 	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_DOOR_LOCK_MIN_PIN_LEN_ID, (min_pin_code_length)) 			\
 	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_DOOR_LOCK_AUTO_RELOCK_TIME_ID, (atuo_relock_time)) 		\
+	ZB_ZCL_SET_ATTR_DESC(ZB_ZCL_ATTR_DOOR_LOCK_KEYPAD_OPERATION_EVENT_MASK_ID, (keypad_operation_event_mask)) 		\
 	ZB_ZCL_FINISH_DECLARE_ATTRIB_LIST
   
 ZB_ZCL_DECLARE_DOOR_LOCK_CLUSTER_ATTRIB_LIST_C(door_lock_attr_list,
@@ -280,7 +322,8 @@ ZB_ZCL_DECLARE_DOOR_LOCK_CLUSTER_ATTRIB_LIST_C(door_lock_attr_list,
 											&dev_ctx.door_lock_attr.number_of_pin_users_supported,
 											&dev_ctx.door_lock_attr.max_pin_code_length,
 											&dev_ctx.door_lock_attr.min_pin_code_length,
-											&dev_ctx.door_lock_attr.atuo_relock_time);
+											&dev_ctx.door_lock_attr.atuo_relock_time,
+											&dev_ctx.door_lock_attr.keypad_operation_event_mask);
 											
 ZB_HA_DECLARE_DOOR_LOCK_CLUSTER_LIST(door_lock_clusters,
 									door_lock_attr_list,
@@ -338,6 +381,8 @@ static void bulb_clusters_attr_init(void)
     dev_ctx.identify_attr.identify_time    = ZB_ZCL_IDENTIFY_IDENTIFY_TIME_DEFAULT_VALUE;
     dev_ctx.identify_attr.commission_state = ZB_ZCL_ATTR_IDENTIFY_COMMISSION_STATE_HA_ID_DEF_VALUE;
 	
+	dev_ctx.door_lock_attr.keypad_operation_event_mask = KEYPAD_OPERATION_BIT2;
+	
 }
 
 /***********************************************************************************************/
@@ -346,6 +391,7 @@ static void bulb_clusters_attr_init(void)
 static void uart_sent_event_handler(uint8_t * param, uint8_t len);
 static void uart_receive_event_handler(void * param);
 
+zb_void_t air_sent_event_zigbee(zb_uint8_t param, zb_uint16_t user_param);
 static zb_void_t air_sent_event_handler(uint8_t load_len, uint8_t *load_param, uint8_t *param, ...);
 static zb_void_t air_recevie_event_handler(uint8_t param1_len, uint8_t *param1, uint8_t param2_len, uint8_t *param2, uint8_t *param,...);
 /*****************************function declear**************************************************/
@@ -418,7 +464,7 @@ static void uart_receive_event_handler(void * param)
 		{
 			check_sum += receiv[i];
 		}
-	}	
+	}
 	
 
 	uint8_t high_four_bit = receiv[1] >> 4;
@@ -455,77 +501,129 @@ static void uart_receive_event_handler(void * param)
 			{
 				case LOW_FOUR_BIT_0: //本地斜锁事件
 				{
-					air_sent_event_handler(1, &receiv[4], Param_Num_4, Mcu_Zb_Fill_Standard(DOOR_LOCK_COMMADN_LOCK_DOOR,		\
-						ZB_ZCL_ATTR_DOOR_LOCK_LOCK_STATE_ID));
+					
 				}break;
 				
 				case LOW_FOUR_BIT_1: //本地主锁事件
-				{					
-					air_sent_event_handler(1, &receiv[4], Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
-						ZB_ZCL_ATTR_DOOR_LOCK_BACK_LOCK_ID));
+				{
+					if(receiv[4] == 0)			//主锁上锁
+					{
+						operation_event_format[0] = OPERATION_KEYPAD;
+						operation_event_format[1] = MANUAL_OPERATION_BIT1;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_OPERATION_EVENT_NOTIFICATION_ID);
+					}
+					else if(receiv[4] == 1)		//主锁解锁
+					{
+						operation_event_format[0] = OPERATION_KEYPAD;
+						operation_event_format[1] = MANUAL_OPERATION_BIT2;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_OPERATION_EVENT_NOTIFICATION_ID);
+					}
 				}break;
 				
 				case LOW_FOUR_BIT_2: //本地系统锁定事件
 				{
-					air_sent_event_handler(1, &receiv[4], Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+					air_sent_event_handler(1, &receiv[4], Param_Num_4, Mcu_Zb_Fill_Manufac(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
 						ZB_ZCL_ATTR_DOOR_LOCK_SYSTEM_LOCK_ID));
 				}break;
 				
 				case LOW_FOUR_BIT_3: //本地门铃事件
 				{
-					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manufac(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
 						ZB_ZCL_ATTR_DOOR_LOCK_DOOR_BELL_ID));
 				}break;
 				
 				case LOW_FOUR_BIT_4: //本地防撬事件
 				{
-					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manufac(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
 						ZB_ZCL_ATTR_DOOR_LOCK_PRYING_RESISTANT_ID));
 				}break;
 				
 				case LOW_FOUR_BIT_5: //本地逗留事件
 				{
-					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manufac(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
 						ZB_ZCL_ATTR_DOOR_LOCAL_STAY_ID));
 				}break;
 				
 				case LOW_FOUR_BIT_6: //本地电压事件
 				{
-					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manufac(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
 						ZB_ZCL_ATTR_DOOR_LOCK_VOLTAGE_LEVEL_ID));
 				}break;
 				
 				case LOW_FOUR_BIT_7: //本地用户劫持事件
 				{
-					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
+					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manufac(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
 						ZB_ZCL_ATTR_DOOR_LOCK_HIJACKING_PREVENTION_ID));
 				}break;
 				
+				/* 用户类型和用户状态，暂不处理，已填入0xFF */
 				case LOW_FOUR_BIT_8: //本地新增用户事件
 				{
-
+					if(receiv[4] == MASTER_USER)
+					{					
+						programming_event_format[0] = PROGRAMMING_KEYPAD;
+						programming_event_format[1] = KEYPAD_PROGRAMMING_BIT2;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_PROGRAMMING_EVENT_NOTIFICATION);
+					}
+					else if(receiv[4] == GENERAL_USER)
+					{
+						programming_event_format[0] = PROGRAMMING_KEYPAD;
+						programming_event_format[1] = KEYPAD_PROGRAMMING_BIT2;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_PROGRAMMING_EVENT_NOTIFICATION);
+					}
+					else if(receiv[4] == TEMPRORARY_USER)
+					{
+						programming_event_format[0] = PROGRAMMING_KEYPAD;
+						programming_event_format[1] = KEYPAD_PROGRAMMING_BIT2;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_PROGRAMMING_EVENT_NOTIFICATION);
+					}
 				}break;
 				
 				case LOW_FOUR_BIT_9: //本地删除用户事件
 				{
-					
+					programming_event_format[0] = PROGRAMMING_KEYPAD;
+					programming_event_format[1] = KEYPAD_PROGRAMMING_BIT3;
+					ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_PROGRAMMING_EVENT_NOTIFICATION);
 				}break;
 				
 				case LOW_FOUR_BIT_A: //本地修改用户事件
 				{
-					
+					programming_event_format[0] = PROGRAMMING_KEYPAD;
+					programming_event_format[1] = KEYPAD_PROGRAMMING_BIT4;
+					ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_PROGRAMMING_EVENT_NOTIFICATION);
 				}break;
 				
 				case LOW_FOUR_BIT_B: //本地格式重置化事件
 				{
-					air_sent_event_handler(1, &report_state, Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
-						ZB_ZCL_ATTR_DOOR_LOCK_FACTORY_SETTING_ID));
+
 				}break;
 				
 				case LOW_FOUR_BIT_C: //本地普通模式开锁事件
 				{
-					air_sent_event_handler(4, &receiv[4], Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_CUSTOM_FORMAT,	\
-						ZB_ZCL_ATTR_DOOR_LOCK_CUSTOM_UNLOCK_MODE_ID));
+					if(receiv[6] == 0x00)		//密码
+					{					
+						programming_event_format[0] = OPERATION_KEYPAD;
+						programming_event_format[1] = KEYPAD_OPERATION_BIT2;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_PROGRAMMING_EVENT_NOTIFICATION);
+					}
+					else if(receiv[6] == 0x01)	//指纹
+					{
+						programming_event_format[0] = OPERATION_FINGER;
+						programming_event_format[1] = FINGER_OPERATION_BIT2;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_PROGRAMMING_EVENT_NOTIFICATION);
+					}
+					else if(receiv[6] == 0x02)	//射频卡
+					{
+						programming_event_format[0] = OPERATION_RFID;
+						programming_event_format[1] = RFID_OPERATION_BIT2;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_PROGRAMMING_EVENT_NOTIFICATION);
+					}
+					else if(receiv[6] == 0x03)	//app
+					{
+						programming_event_format[0] = OPERATION_RF;
+						programming_event_format[1] = RF_OPERATION_BIT2;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_PROGRAMMING_EVENT_NOTIFICATION);
+					}
 				}break;
 				
 				case LOW_FOUR_BIT_D: //本地双重验证开锁事件
@@ -608,19 +706,50 @@ static void uart_receive_event_handler(void * param)
 			{
 				case LOW_FOUR_BIT_0: //APP 无线开锁结果回传
 				{
-					air_sent_event_handler(1, &receiv[4], Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_MANUF_STATE_REPORT,	\
-						ZB_ZCL_ATTR_DOOR_LOCK_VERIFY_CODE_ID));
+					if(receiv[4] == 0)			//密码错误
+					{
+						operation_event_format[0] = OPERATION_RF;
+						operation_event_format[1] = RF_OPERATION_BIT5;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_OPERATION_EVENT_NOTIFICATION_ID);
+					}
+					else if(receiv[4] == 1)		//密码正确
+					{
+						operation_event_format[0] = OPERATION_RF;
+						operation_event_format[1] = RF_OPERATION_BIT2;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_OPERATION_EVENT_NOTIFICATION_ID);
+					}
 				}break;
 				
 				case LOW_FOUR_BIT_1: //APP 管理员验证结果回传
 				{
-					air_sent_event_handler(1, &receiv[4], Param_Num_4, Mcu_Zb_Fill_Manuf(DOOR_LOCK_COMMADN_ADMIN_VERIFY_CODE,	\
-						ZB_ZCL_ATTR_DOOR_LOCK_ADMIN_VERIFY_EVENT_ID));
+					if(receiv[4] == 0)			//密码错误
+					{
+						operation_event_format[0] = OPERATION_RF;
+						operation_event_format[1] = RF_OPERATION_BIT5;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_OPERATION_EVENT_NOTIFICATION_ID);
+					}
+					else if(receiv[4] == 1)		//密码正确
+					{
+						operation_event_format[0] = OPERATION_RF;
+						operation_event_format[1] = RF_OPERATION_BIT2;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_OPERATION_EVENT_NOTIFICATION_ID);
+					}
 				}break;
-				
+		
 				case LOW_FOUR_BIT_2: //APP 更改用户信息回传
 				{
-				
+					if(receiv[4] == 1)			//添加成功
+					{
+						programming_event_format[0] = PROGRAMMING_RF;
+						programming_event_format[1] = RF_PROGRAMMING_BIT2;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_PROGRAMMING_EVENT_NOTIFICATION);
+					}
+					else if(receiv[4] == 2)		//删除成功
+					{
+						programming_event_format[0] = PROGRAMMING_RF;
+						programming_event_format[1] = RF_PROGRAMMING_BIT3;
+						ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, ZB_ZCL_CMD_DOOR_LOCK_PROGRAMMING_EVENT_NOTIFICATION);
+					}
 				}break;
 				
 				case LOW_FOUR_BIT_3: //APP 添加临时用户磁卡失败回传
@@ -630,7 +759,8 @@ static void uart_receive_event_handler(void * param)
 				
 				case LOW_FOUR_BIT_4: //APP 添加临时用户密码失败回传
 				{
-					
+					/* 添加失败 */
+					//目前为找到对应
 				}break;
 				
 				case LOW_FOUR_BIT_5: //APP 临时管理密码结果回传
@@ -1135,13 +1265,28 @@ uint8_t air_sent[AIR_ZIGBEE_MAX_LEN];
 uint8_t air_receive_len = 0;
 uint8_t air_receive[AIR_ZIGBEE_MAX_LEN];
 
-zb_void_t air_sent_event(zb_uint8_t param)
+zb_void_t air_sent_event_manufac(zb_uint8_t param)
 {
-	//air_sent[0]:manuf_specific air_sent[1]:cmd_id	
+	//air_sent[0]：MANUFAC_SPECIFIC_BIT        air_sent[1]：cmd_id_manuf	
 	zb_buf_t           * p_buf = ZB_BUF_FROM_REF(param);
-	ZB_ZCL_GENERAL_REPORT_HANDLER(p_buf, air_sent, air_sent_len, dst_short_address, air_sent[0], air_sent[1], NULL);
+	ZB_ZCL_DOOR_LOCK_SEND_CUSTOM_EVENT_NOTIFICATION(p_buf, dst_short_address, air_sent, air_sent_len, air_sent[1], NULL);
 	air_sent_len = 0;
 }
+
+zb_void_t air_sent_event_zigbee(zb_uint8_t param, zb_uint16_t user_param)
+{
+	//ZB_GET_OUT_BUF_DELAYED2(air_sent_event_zigbee, user_param)
+	zb_buf_t           * p_buf = ZB_BUF_FROM_REF(param);
+	if(user_param == ZB_ZCL_CMD_DOOR_LOCK_OPERATION_EVENT_NOTIFICATION_ID)
+	{
+		ZB_ZCL_DOOR_LOCK_SEND_OPERATION_EVENT_NOTIFICATION(p_buf, dst_short_address, operation_event_format, strlen(operation_event_format));
+	}
+	else if(user_param == ZB_ZCL_CMD_DOOR_LOCK_PROGRAMMING_EVENT_NOTIFICATION)
+	{
+		ZB_ZCL_DOOR_LOCK_SEND_PROGRAMMMING_EVENT_NOTIFICATION(p_buf, dst_short_address, programming_event_format, strlen(programming_event_format));
+	}
+}
+
 static zb_void_t air_sent_event_handler(uint8_t load_len, uint8_t *load_param, uint8_t *param, ...)
 {
 	va_list ap;
@@ -1186,7 +1331,7 @@ static zb_void_t air_sent_event_handler(uint8_t load_len, uint8_t *load_param, u
 	}
 	air_sent_len = sent_len_tmp;
 	
-	ZB_GET_OUT_BUF_DELAYED(air_sent_event);
+	ZB_GET_OUT_BUF_DELAYED(air_sent_event_manufac);
 }
 
 static zb_void_t air_recevie_event(zb_uint8_t param)
@@ -1268,8 +1413,8 @@ static zb_void_t air_recevie_event_handler(uint8_t param1_len, uint8_t *param1, 
 	
 	zb_ret_t                       zb_err_code;
 	zibee_to_mcu_retry = 1;
-	zb_err_code = ZB_SCHEDULE_ALARM(air_recevie_event, 2, ZB_MILLISECONDS_TO_BEACON_INTERVAL(10));
-    ZB_ERROR_CHECK(zb_err_code);	
+	zb_err_code = ZB_SCHEDULE_ALARM(air_recevie_event, 3, ZB_MILLISECONDS_TO_BEACON_INTERVAL(10));
+    ZB_ERROR_CHECK(zb_err_code);
 }
 static zb_uint8_t air_recevie_event_callback(zb_uint8_t param)
 {
@@ -1314,6 +1459,11 @@ static zb_uint8_t air_recevie_event_callback(zb_uint8_t param)
 			{
 				case DOOR_LOCK_COMMADN_LOCK_DOOR:
 				{
+					//ZB_GET_OUT_BUF_DELAYED(air_sent_event_ex);
+				}break;
+				
+				case DOOR_LOCK_COMMADN_UNLOCK_DOOR:
+				{
 					switch(buf[0])
 					{
 						case 4:
@@ -1354,20 +1504,6 @@ static zb_uint8_t air_recevie_event_callback(zb_uint8_t param)
 								
 					//zb_err_code = ZB_SCHEDULE_ALARM(air_recevie_event_handler, DOOR_LOCK_COMMADN_LOCK_DOOR, ZB_TIME_ONE_SECOND);
 					//ZB_ERROR_CHECK(zb_err_code);
-				}break;
-				
-				case DOOR_LOCK_COMMADN_UNLOCK_DOOR:
-				{
-					switch(buf[0])
-					{
-						case 6:
-						{
-						
-						}break;	
-						
-						default:
-							break;
-					}
 				}break;
 				
 				case DOOR_LOCK_COMMADN_TOGGLE:
@@ -1501,17 +1637,47 @@ static zb_uint8_t air_recevie_event_callback(zb_uint8_t param)
 			{
 				case DOOR_LOCK_COMMADN_MANUF_ADD_USER:
 				{
-					memset(&door_lock, 0, sizeof(zb_door_lock_param_t));
-					door_lock.add_user.user_id = (buf[2] << 8) | buf[1];
-					door_lock.add_user.user_type = buf[3];
-					door_lock.add_user.code_type = buf[4];
-					door_lock.add_user.code_len = buf[5];
-					memcpy(door_lock.add_user.code, &buf[6], door_lock.add_user.code_len);
-					memcpy(door_lock.add_user.start_time, &buf[6 + door_lock.add_user.code_len], 6);
-					memcpy(door_lock.add_user.end_time, &buf[13 + door_lock.add_user.code_len], 6);
+					memset(&door_lock.add_user, 0, sizeof(add_user_param_t));
+					door_lock.add_user.user_id = (buf[1] << 8) | buf[0];
+					door_lock.add_user.user_type = buf[2];
+					door_lock.add_user.code_type =  buf[3];
+					door_lock.add_user.code_len = buf[4];
+					
+					int i = 0;
+					for(i = 0; i < door_lock.add_user.code_len; i++)
+					{
+						door_lock.add_user.code[i] = buf[i + 5] - '0';
+					}
+					
+					uint8_t time_tmp_len = buf[5 + door_lock.add_user.code_len];
+					uint8_t time_tmp[30] = {0};
+					memcpy(time_tmp, &buf[6 + door_lock.add_user.code_len], time_tmp_len);					
+					for(i = 0; i < time_tmp_len; i++)
+					{
+						time_tmp[i] -= '0';
+					}					
+					
+					uint8_t uart_time_data[15] = {0};
+					/* 起始时间，暂不处理年的高位*/
+					uart_time_data[0] = time_tmp[2] * 10 + time_tmp[3];
+					uart_time_data[1] = time_tmp[4] * 10 + time_tmp[5];
+					uart_time_data[2] = time_tmp[6] * 10 + time_tmp[7];				
+					uart_time_data[3] = time_tmp[8] * 10 + time_tmp[9];
+					uart_time_data[4] = time_tmp[10] * 10 + time_tmp[11];
+					uart_time_data[5] = time_tmp[12] * 10 + time_tmp[13];
+					
+					/* 结束时间，暂不处理年的高位*/					
+					uart_time_data[6] = time_tmp[17] * 10 + time_tmp[18];
+					uart_time_data[7] = time_tmp[19] * 10 + time_tmp[20];					
+					uart_time_data[8] = time_tmp[21] * 10 + time_tmp[22];
+					uart_time_data[9] = time_tmp[23] * 10 + time_tmp[24];
+					uart_time_data[10] = time_tmp[25] * 10 + time_tmp[26];
+					uart_time_data[11] = time_tmp[27] * 10 + time_tmp[28];
 				
+					//uart_sent_event_handler(time_tmp, 12);
+					
 					air_recevie_event_handler(door_lock.add_user.code_len, door_lock.add_user.code, 12,		\
-						door_lock.add_user.start_time, Param_Num_5, Zb_Mcu_Fill_Reserve(0x13, ZB_MCU_LOAD_LEN_0x13));
+						uart_time_data, Param_Num_8, Zb_Mcu_Fill_Reserve(0x13, ZB_MCU_LOAD_LEN_0x13), 0x02, 0x01, door_lock.add_user.code_len);
 				}break;
 				
 				case DOOR_LOCK_COMMADN_MANUF_DELETE_USER:
@@ -1520,22 +1686,50 @@ static zb_uint8_t air_recevie_event_callback(zb_uint8_t param)
 				}break;
 				
 				case DOOR_LOCK_COMMADN_MANUF_CHANGE_CODE:
-				{
+				{  
 					NRF_LOG_INFO("DOOR_LOCK_COMMADN_MANUF_CHANGE_CODE");
 					
 				}break;
 				
 				case DOOR_LOCK_COMMADN_ADMIN_VERIFY_CODE:
 				{					
-					
+					memset(&door_lock.admin_verify, 0, sizeof(admin_verify_param_t));
+					door_lock.admin_verify.user_id = (buf[1] << 8) | buf[0];
+					door_lock.admin_verify.code_type = buf[2];
+					door_lock.admin_verify.admin_code_len = buf[3];
+					for(char i = 0; i < door_lock.admin_verify.admin_code_len; i++)
+					{
+						door_lock.admin_verify.admin_code[i] = buf[i + 4] - '0';
+					}				
+					//memcpy(door_lock.admin_verify.admin_code, &buf[4], door_lock.admin_verify.admin_code_len);
+					air_recevie_event_handler(1, &door_lock.admin_verify.admin_code_len, door_lock.admin_verify.admin_code_len, door_lock.admin_verify.admin_code,		\
+						Param_Num_5, Zb_Mcu_Fill_Reserve(0x15, ZB_MCU_LOAD_LEN_0x15));
+					//air_recevie_event_handler(buf_len, buf, 0, NULL, "%x", 0xAA);
 				}break;
 				
 				case DOOR_LOCK_COMMADN_MANUF_TIME_SYNC:
 				{
 					//NRF_LOG_INFO("DOOR_LOCK_COMMADN_MANUF_TIME_SYNC");
-					if(buf[0] == 6)
-					{					
-						air_recevie_event_handler(buf[0], &buf[1], 0, NULL, Param_Num_5, Zb_Mcu_Fill_Reserve(0x12, ZB_MCU_LOAD_LEN_0x12));	
+					if(buf[0] == 0x0E)
+					{	
+						uint8_t time_sync_len = buf[0];
+						uint8_t time_sync[15] = {0};
+						memcpy(time_sync, &buf[1], time_sync_len);					
+						for(char i = 0; i < time_sync_len; i++)
+						{
+							time_sync[i] -= '0';
+						}					
+						
+						uint8_t uart_time_sync_data[10] = {0};
+						/* 同步时间，暂不处理年的高位*/
+						uart_time_sync_data[0] = time_sync[2] * 10 + time_sync[3];
+						uart_time_sync_data[1] = time_sync[4] * 10 + time_sync[5];
+						uart_time_sync_data[2] = time_sync[6] * 10 + time_sync[7];				
+						uart_time_sync_data[3] = time_sync[8] * 10 + time_sync[9];
+						uart_time_sync_data[4] = time_sync[10] * 10 + time_sync[11];
+						uart_time_sync_data[5] = time_sync[12] * 10 + time_sync[13];
+					
+						air_recevie_event_handler(6, uart_time_sync_data, 0, NULL, Param_Num_5, Zb_Mcu_Fill_Reserve(0x12, ZB_MCU_LOAD_LEN_0x12));	
 					}
 					else
 					{
@@ -1563,6 +1757,14 @@ static zb_uint8_t air_recevie_event_callback(zb_uint8_t param)
 					break;
 			}
 		}
+		else
+		{
+			air_recevie_event_handler(0, NULL, 0, NULL, "%x%x", 0xEE, 0xEE);
+		}
+	}
+	else
+	{
+		air_recevie_event_handler(0, NULL, 0, NULL, "%x%x", 0xBB, 0xBB);
 	}
 		
 	return 0;

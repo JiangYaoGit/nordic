@@ -10,8 +10,9 @@
 #define Zb_Mcu_Fill_Reserve(cmd, len)			UART_PROTOCOL_HEADER_FIELD, cmd, UART_PROTOCOL_RESERVE_FIELD, (len & 0xFF00) >> 8, len & 0x00FF
 #define Zb_Mcu_Fill_No_Reserve(cmd)				UART_PROTOCOL_HEADER_FIELD, cmd, (len & 0xFF00) >> 8, len & 0x00FF
 
-#define Mcu_Zb_Fill_Standard(cmd, attri)		ZIGBEE_STANDART_BIT, cmd, (attri & 0xFF00) >> 8, attri & 0x00FF
-#define Mcu_Zb_Fill_Manuf(cmd, attri)			MANUFAC_SPECIFIC_BIT, cmd, (attri & 0xFF00) >> 8, attri & 0x00FF
+#define Mcu_Zb_Fill_Standard(cmd)				ZIGBEE_STANDART_BIT, cmd
+#define Mcu_Zb_Fill_Manufac(cmd, attri)			MANUFAC_SPECIFIC_BIT, cmd, (attri & 0xFF00) >> 8, attri & 0x00FF
+
 
 #define HIGH_FOUR_BIT_0							0x00
 #define HIGH_FOUR_BIT_1							0x01
@@ -46,6 +47,8 @@
 #define LOW_FOUR_BIT_E							0x0E
 #define LOW_FOUR_BIT_F							0x0F
 
+#define Param_Num_2 							"%x%x"
+#define Param_Num_3 							"%x%x%x"
 #define Param_Num_4 							"%x%x%x%x"
 #define Param_Num_5 							"%x%x%x%x%x"
 #define Param_Num_6 							"%x%x%x%x%x%x"
@@ -57,7 +60,7 @@
 /********************************* Zigbee to Mcu Uart Load Length*************************/
 #define ZB_MCU_LOAD_LEN_0x11							0x08
 #define ZB_MCU_LOAD_LEN_0x12							0x07
-#define ZB_MCU_LOAD_LEN_0x13							0x14
+#define ZB_MCU_LOAD_LEN_0x13							0x16
 #define ZB_MCU_LOAD_LEN_0x14							0x03
 #define ZB_MCU_LOAD_LEN_0x15							0x08
 #define ZB_MCU_LOAD_LEN_0x1A							0x03		//0x55, 0xAA
