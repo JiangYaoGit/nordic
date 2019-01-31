@@ -1,5 +1,14 @@
 
-属性权限（权限是指另一设备对当前设备的操作权限）
+属性权限（权限是指另一设备对当前设备的操作权限） -- 属性命令		
 read：主要强调访问
 write：主要强调对属性的设置
-report：主要强调属性改变时，状态的上报
+report：主要强调属性值改变时，状态的上报
+
+
+响应：被动响应和主动响应 -- 控制命令
+被动响应，当server收到client的命令后，sever接收成功时，回复response，而不考虑该命令是否影响的当前的状态
+主动响应，当前状态发生改变时，主动响应
+
+report和主动响应的区别，针对不同的cluster设定的，都是状态改变后的上传
+report -- 如chapter 3下basic、on/off、level control等簇  Disable Default Response Sub-field为0
+主动响应 -- 如chapter 3下identity、group、scenes等簇 chapter 7下door lock为1
