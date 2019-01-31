@@ -42,7 +42,10 @@ plugin device-table print  //打印设备列表
 plugin device-table leave {000B57FFFE648DD8} //使设备退网
 
 
-
+silicon自定义command
+silicon cli命令行输入，字符串自带检测长度
+时间格式推荐：字符串，便于cli的输入，一个字符占一个字节，软件中拆开处理。  "20190101000000-20190301010203"
+具体添加步骤，可看附件lockTest_callbacks.c
   
 默认连接密钥：5A:69:67:42:65:65:41:6C:6C:69:61:6E:63:65:30:39  CRC:CD5F
 目前测试nordic 1个信道1s，16个信道16s

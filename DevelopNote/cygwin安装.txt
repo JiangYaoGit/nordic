@@ -1,0 +1,15 @@
+cygwin:setup_x86.exe
+
+除了默认的安装包外，还需安装gcc-core  gcc-g++  make （category->Devel选install，表示全部安装，不是默认选项）
+可选Perl interpreter     gdb
+
+
+离线安装包由setup_x86.exe和http%3a%2f%2fcygwin.mirror.constant.com%2f组成(推荐这种方式)
+
+
+硬件流控：启动 cygwin
+./Z3GatewayHost -p COM14
+
+软件流控：启动 ubuntu(修改波特率57600)
+sudo  ./Z3GatewayHost -n 1 -p /dev/ttyUSB0
+
